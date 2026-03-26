@@ -1,0 +1,17 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Saloon\Barstool\Tests\Fixtures\Connectors;
+
+use Saloon\Http\Connector;
+
+class RandomConnector extends Connector
+{
+    public bool $allowBaseUrlOverride = true;
+
+    public function resolveBaseUrl(): string
+    {
+        return 'https://craigpotter-not-real.dev';
+    }
+}
