@@ -2,6 +2,12 @@
 
 All notable changes to `barstool` will be documented in this file.
 
+## v1.0.0 - 2026-03-26
+
+**Full Changelog**: https://github.com/saloonphp/barstool/commits/v1.0.0
+
+Migrated from https://github.com/craigpotter/barstool
+
 ## v0.6.1 - 2025-07-29
 
 ### What's Changed
