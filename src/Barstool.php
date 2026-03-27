@@ -8,6 +8,7 @@ use Saloon\Http\Response;
 use Illuminate\Support\Str;
 use Saloon\Http\PendingRequest;
 use Psr\Http\Message\UriInterface;
+use Saloon\Barstool\Enums\RecordingType;
 use Saloon\Barstool\Jobs\RecordBarstoolJob;
 use Saloon\Contracts\Body\BodyRepository;
 use Saloon\Repositories\Body\StreamBodyRepository;
@@ -133,7 +134,7 @@ class Barstool
 
         $data->headers()->add('X-Barstool-UUID', $uuid);
 
-        self::persist('request', self::getRequestData($data), $uuid);
+        self::persist(RecordingType::Request, self::getRequestData($data), $uuid);
     }
 
     private static function recordResponse(Response $data): void
@@ -150,7 +151,7 @@ class Barstool
             ...self::getResponseData($data),
         ];
 
-        self::persist('response', $payload, $uuid);
+        self::persist(RecordingType::Response, $payload, $uuid);
     }
 
     public static function calculateDuration(Response|PendingRequest $data): int
@@ -173,14 +174,13 @@ class Barstool
             ...self::getFatalData($data),
         ];
 
-        self::persist('fatal', $payload, $uuid);
+        self::persist(RecordingType::Fatal, $payload, $uuid);
     }
 
     /**
-     * @param  'request'|'response'|'fatal'  $type
      * @param  array<string, mixed>  $payload
      */
-    private static function persist(string $type, array $payload, string $uuid): void
+    private static function persist(RecordingType $type, array $payload, string $uuid): void
     {
         if (self::shouldQueue()) {
             RecordBarstoolJob::dispatch($type, $payload, $uuid)
