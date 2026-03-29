@@ -6,7 +6,7 @@ namespace Saloon\Barstool\Enums;
 
 enum RecordingType: string
 {
-    case Request = 'request';
-    case Response = 'response';
-    case Fatal = 'fatal';
+    case REQUEST = 'request';
+    case RESPONSE = 'response';
+    case FATAL = 'fatal';
 }

@@ -3,13 +3,13 @@
 declare(strict_types=1);
 
 use Saloon\Http\Faking\MockClient;
+use Saloon\Barstool\Models\Barstool;
 use Saloon\Http\Faking\MockResponse;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Artisan;
-use Saloon\Barstool\Models\Barstool;
-use Saloon\Barstool\Jobs\RecordBarstoolJob;
 use Saloon\Barstool\Enums\RecordingType;
 use Saloon\Http\Connectors\NullConnector;
+use Saloon\Barstool\Jobs\RecordBarstoolJob;
 
 use function Pest\Laravel\assertDatabaseHas;
 use function Pest\Laravel\assertDatabaseCount;
@@ -588,7 +588,7 @@ it('dispatches jobs when queue is enabled with correct payload', function () {
     Queue::assertPushed(RecordBarstoolJob::class, 2);
 
     Queue::assertPushed(RecordBarstoolJob::class, function (RecordBarstoolJob $job) {
-        return $job->type === RecordingType::Request
+        return $job->type === RecordingType::REQUEST
             && $job->data['connector_class'] === NullConnector::class
             && $job->data['request_class'] === SoloUserRequest::class
             && $job->data['method'] === 'GET'
@@ -597,7 +597,7 @@ it('dispatches jobs when queue is enabled with correct payload', function () {
     });
 
     Queue::assertPushed(RecordBarstoolJob::class, function (RecordBarstoolJob $job) {
-        return $job->type === RecordingType::Response
+        return $job->type === RecordingType::RESPONSE
             && $job->data['response_status'] === 200
             && $job->data['successful'] === true
             && $job->data['response_body'] === json_encode(['data' => [['name' => 'John Wayne']]])
@@ -632,6 +632,7 @@ it('dispatches jobs on the configured queue connection and name', function () {
 it('processes queued jobs and creates database records with correct data', function () {
     config()->set('barstool.enabled', true);
     config()->set('barstool.queue.enabled', true);
+    config()->set('queue.default', 'sync');
 
     MockClient::global([
         SoloUserRequest::class => MockResponse::make(
@@ -671,7 +672,7 @@ it('dispatches a fatal job when queue is enabled with correct payload', function
         SoloUserRequest::class => MockResponse::make(
             body: ['error' => 'Something went wrong'],
             status: 500,
-        )->throw(fn ($pendingRequest) => new FatalRequestException(new \Exception('Fatal error'), $pendingRequest)),
+        )->throw(fn ($pendingRequest) => new FatalRequestException(new Exception('Fatal error'), $pendingRequest)),
     ]);
 
     try {
@@ -681,13 +682,13 @@ it('dispatches a fatal job when queue is enabled with correct payload', function
     }
 
     Queue::assertPushed(RecordBarstoolJob::class, function (RecordBarstoolJob $job) {
-        return $job->type === RecordingType::Request
+        return $job->type === RecordingType::REQUEST
             && $job->data['connector_class'] === NullConnector::class
             && $job->data['request_class'] === SoloUserRequest::class;
     });
 
     Queue::assertPushed(RecordBarstoolJob::class, function (RecordBarstoolJob $job) {
-        return $job->type === RecordingType::Fatal
+        return $job->type === RecordingType::FATAL
             && $job->data['fatal_error'] === 'Fatal error'
             && $job->data['successful'] === false
             && $job->data['response_body'] === null

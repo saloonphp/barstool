@@ -134,7 +134,7 @@ class Barstool
 
         $data->headers()->add('X-Barstool-UUID', $uuid);
 
-        self::persist(RecordingType::Request, self::getRequestData($data), $uuid);
+        self::persist(RecordingType::REQUEST, self::getRequestData($data), $uuid);
     }
 
     private static function recordResponse(Response $data): void
@@ -151,7 +151,7 @@ class Barstool
             ...self::getResponseData($data),
         ];
 
-        self::persist(RecordingType::Response, $payload, $uuid);
+        self::persist(RecordingType::RESPONSE, $payload, $uuid);
     }
 
     public static function calculateDuration(Response|PendingRequest $data): int
@@ -174,7 +174,7 @@ class Barstool
             ...self::getFatalData($data),
         ];
 
-        self::persist(RecordingType::Fatal, $payload, $uuid);
+        self::persist(RecordingType::FATAL, $payload, $uuid);
     }
 
     /**
