@@ -81,7 +81,6 @@ class Barstool
     /**
      * @return array{
      *      url: UriInterface,
-     *      status: 'failed'|'successful',
      *      response_headers: array<string, mixed>,
      *      response_body: string,
      *      response_status: int,
@@ -104,7 +103,6 @@ class Barstool
     /**
      * @return array{
      *      url: UriInterface,
-     *      status: 'fatal',
      *      response_headers: null,
      *      response_body: null,
      *      response_status: null,
