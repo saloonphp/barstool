@@ -94,7 +94,6 @@ class Barstool
 
         return [
             'url' => $response->getPsrRequest()->getUri(),
-            'status' => $response->failed() ? 'failed' : 'successful',
             'response_headers' => $response->headers()->all(),
             'response_body' => $responseBody,
             'response_status' => $response->status(),
