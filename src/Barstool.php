@@ -116,7 +116,6 @@ class Barstool
     {
         return [
             'url' => $exception->getPendingRequest()->getUri(),
-            'status' => 'fatal',
             'response_headers' => null,
             'response_body' => null,
             'response_status' => null,
