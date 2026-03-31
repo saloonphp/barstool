@@ -83,7 +83,6 @@ class Barstool
     /**
      * @return array{
      *      url: UriInterface,
-     *      status: 'failed'|'successful',
      *      response_headers: array<string, mixed>,
      *      response_body: string,
      *      response_status: int,
@@ -96,7 +95,6 @@ class Barstool
 
         return [
             'url' => $response->getPsrRequest()->getUri(),
-            'status' => $response->failed() ? 'failed' : 'successful',
             'response_headers' => $response->headers()->all(),
             'response_body' => $responseBody,
             'response_status' => $response->status(),
@@ -107,7 +105,6 @@ class Barstool
     /**
      * @return array{
      *      url: UriInterface,
-     *      status: 'fatal',
      *      response_headers: null,
      *      response_body: null,
      *      response_status: null,
@@ -119,7 +116,6 @@ class Barstool
     {
         return [
             'url' => $exception->getPendingRequest()->getUri(),
-            'status' => 'fatal',
             'response_headers' => null,
             'response_body' => null,
             'response_status' => null,
