@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Saloon\Barstool\Tests;
 
 use Illuminate\Support\Facades\Schema;
-use Orchestra\Testbench\TestCase as Orchestra;
 use Saloon\Barstool\BarstoolServiceProvider;
+use Orchestra\Testbench\TestCase as Orchestra;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class TestCase extends Orchestra
