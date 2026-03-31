@@ -16,10 +16,14 @@ use function Pest\Laravel\assertDatabaseCount;
 use function Pest\Laravel\assertDatabaseEmpty;
 
 use Saloon\Exceptions\Request\FatalRequestException;
+use Saloon\Barstool\Tests\Fixtures\Requests\PutRequest;
 use Saloon\Barstool\Tests\Fixtures\Requests\PostRequest;
+use Saloon\Barstool\Tests\Fixtures\Requests\PatchRequest;
+use Saloon\Barstool\Tests\Fixtures\Requests\DeleteRequest;
 use Saloon\Barstool\Tests\Fixtures\Requests\GetFileRequest;
 use Saloon\Barstool\Tests\Fixtures\Requests\SoloUserRequest;
 use Saloon\Barstool\Tests\Fixtures\Connectors\RandomConnector;
+use Saloon\Barstool\Tests\Fixtures\Requests\MultipartPostRequest;
 use Saloon\Barstool\Tests\Fixtures\Requests\RequestWithConnector;
 
 it('can be enabled', function () {
@@ -714,4 +718,159 @@ it('does not dispatch jobs when queue is disabled', function () {
     Queue::assertNothingPushed();
 
     assertDatabaseCount('barstools', 1);
+});
+
+it('correctly records multipart request bodies', function () {
+    config()->set('barstool.enabled', true);
+
+    MockClient::global([
+        MultipartPostRequest::class => MockResponse::make(
+            body: ['success' => true],
+            status: 200,
+            headers: ['Content-Type' => 'application/json'],
+        ),
+    ]);
+
+    $connector = new RandomConnector;
+    $request = new MultipartPostRequest;
+    $request->body()->add('file', 'file-contents', 'document.txt');
+    $response = $connector->send($request);
+
+    $barstool = Barstool::where('uuid', $response->getPendingRequest()->headers()->get('X-Barstool-UUID'))->sole();
+
+    expect($barstool)
+        ->request_class->toBe(MultipartPostRequest::class)
+        ->method->toBe('POST')
+        ->request_body->toBe('<Multipart Body>');
+});
+
+it('correctly records PUT, PATCH and DELETE request methods', function () {
+    config()->set('barstool.enabled', true);
+
+    MockClient::global([
+        PutRequest::class => MockResponse::make(body: [], status: 200, headers: ['Content-Type' => 'application/json']),
+        PatchRequest::class => MockResponse::make(body: [], status: 200, headers: ['Content-Type' => 'application/json']),
+        DeleteRequest::class => MockResponse::make(body: [], status: 204, headers: ['Content-Type' => 'application/json']),
+    ]);
+
+    $connector = new RandomConnector;
+
+    $putResponse = $connector->send(new PutRequest);
+    $patchResponse = $connector->send(new PatchRequest);
+    $deleteResponse = $connector->send(new DeleteRequest);
+
+    $putBarstool = Barstool::where('uuid', $putResponse->getPendingRequest()->headers()->get('X-Barstool-UUID'))->sole();
+    $patchBarstool = Barstool::where('uuid', $patchResponse->getPendingRequest()->headers()->get('X-Barstool-UUID'))->sole();
+    $deleteBarstool = Barstool::where('uuid', $deleteResponse->getPendingRequest()->headers()->get('X-Barstool-UUID'))->sole();
+
+    expect($putBarstool)->method->toBe('PUT');
+    expect($patchBarstool)->method->toBe('PATCH');
+    expect($deleteBarstool)->method->toBe('DELETE');
+});
+
+it('records response body when Content-Type includes charset', function () {
+    config()->set('barstool.enabled', true);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: ['name' => 'John Wayne'],
+            status: 200,
+            headers: ['Content-Type' => 'application/json; charset=utf-8'],
+        ),
+    ]);
+
+    $response = (new SoloUserRequest)->send();
+
+    $barstool = Barstool::where('uuid', $response->getPsrRequest()->getHeader('X-Barstool-UUID')[0])->sole();
+
+    expect($barstool)
+        ->response_body->toBe(json_encode(['name' => 'John Wayne']))
+        ->response_status->toBe(200);
+});
+
+it('does not record response body when Content-Type is missing', function () {
+    config()->set('barstool.enabled', true);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: 'some response',
+            status: 200,
+        ),
+    ]);
+
+    $response = (new SoloUserRequest)->send();
+
+    $barstool = Barstool::where('uuid', $response->getPsrRequest()->getHeader('X-Barstool-UUID')[0])->sole();
+
+    expect($barstool)->response_body->toBe('<Unsupported Barstool Response Content>');
+});
+
+it('does not affect response readability after recording', function () {
+    config()->set('barstool.enabled', true);
+
+    $expectedBody = ['data' => [['name' => 'John Wayne'], ['name' => 'Billy the Kid']]];
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: $expectedBody,
+            status: 200,
+            headers: ['Content-Type' => 'application/json'],
+        ),
+    ]);
+
+    $response = (new SoloUserRequest)->send();
+
+    // Barstool has already recorded the response via middleware at this point.
+    // Verify the response is still fully readable for consumer code.
+    expect($response->body())->toBe(json_encode($expectedBody));
+    expect($response->json())->toBe($expectedBody);
+    expect($response->json('data'))->toBe($expectedBody['data']);
+    expect($response->status())->toBe(200);
+
+    // Reading multiple times should still work
+    expect($response->body())->toBe(json_encode($expectedBody));
+});
+
+it('does not affect streamed request body for consumer code', function () {
+    config()->set('barstool.enabled', true);
+
+    MockClient::global([
+        PostRequest::class => MockResponse::make(
+            body: ['success' => true],
+            status: 200,
+            headers: ['Content-Type' => 'application/json'],
+        ),
+    ]);
+
+    $connector = new RandomConnector;
+    $request = new PostRequest;
+    $stream = fopen(__DIR__.'/yeehaw.txt', 'r');
+    $request->body()->set($stream);
+    $response = $connector->send($request);
+
+    // Barstool records '<Streamed Body>' without consuming the actual stream.
+    // Verify the response is still fully readable.
+    expect($response->json())->toBe(['success' => true]);
+    expect($response->status())->toBe(200);
+
+    $barstool = Barstool::where('uuid', $response->getPendingRequest()->headers()->get('X-Barstool-UUID'))->sole();
+    expect($barstool->request_body)->toBe('<Streamed Body>');
+});
+
+it('generates unique job IDs based on UUID and recording type', function () {
+    $requestJob = new RecordBarstoolJob(RecordingType::REQUEST, ['method' => 'GET'], 'test-uuid-123');
+    $responseJob = new RecordBarstoolJob(RecordingType::RESPONSE, ['status' => 200], 'test-uuid-123');
+    $fatalJob = new RecordBarstoolJob(RecordingType::FATAL, ['error' => 'fail'], 'test-uuid-123');
+
+    expect($requestJob->uniqueId())->toBe('test-uuid-123-request');
+    expect($responseJob->uniqueId())->toBe('test-uuid-123-response');
+    expect($fatalJob->uniqueId())->toBe('test-uuid-123-fatal');
+
+    // Same type + same UUID = same unique ID
+    $duplicateJob = new RecordBarstoolJob(RecordingType::REQUEST, ['method' => 'POST'], 'test-uuid-123');
+    expect($duplicateJob->uniqueId())->toBe($requestJob->uniqueId());
+
+    // Different UUID = different unique ID
+    $differentUuidJob = new RecordBarstoolJob(RecordingType::REQUEST, ['method' => 'GET'], 'other-uuid-456');
+    expect($differentUuidJob->uniqueId())->not->toBe($requestJob->uniqueId());
 });
