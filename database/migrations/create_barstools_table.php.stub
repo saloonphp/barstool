@@ -12,7 +12,7 @@ return new class extends Migration
      */
     public function getConnection(): string|null
     {
-        return config('barstool.database_connection');
+        return config('barstool.connection') ?? config('barstool.database_connection');
     }
 
     /**
