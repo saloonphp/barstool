@@ -68,6 +68,23 @@ The logging will even log fatal errors caused by your saloon requests so you can
 > [!TIP]
 > We will be adding more features soon, so keep an eye out for updates!
 
+## Queue Support
+
+By default, Barstool writes recordings to the database synchronously. If you'd like to offload this to a queue, you can enable it in the config:
+
+```php
+// config/barstool.php
+'queue' => [
+    'enabled' => env('BARSTOOL_QUEUE_ENABLED', false),
+    'connection' => env('BARSTOOL_QUEUE_CONNECTION'),  // null uses default connection
+    'queue' => env('BARSTOOL_QUEUE_NAME'),             // null uses default queue
+],
+```
+
+Or simply set `BARSTOOL_QUEUE_ENABLED=true` in your `.env` file.
+
+When queue support is enabled, recordings are dispatched as jobs instead of being written inline. Each job is **unique** (preventing duplicates) and uses **idempotent writes** (`updateOrCreate`), so recordings are safe even if a job is retried. Failed jobs will automatically retry up to 3 times with a backoff of 5 and 30 seconds.
+
 
 ## Testing
 

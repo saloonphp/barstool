@@ -22,9 +22,10 @@ class Barstool extends Model
 
     use MassPrunable;
 
-    public const string|null UPDATED_AT = null;
+    public const ?string UPDATED_AT = null;
 
     protected $fillable = [
+        'uuid',
         'connector_class',
         'request_class',
         'method',

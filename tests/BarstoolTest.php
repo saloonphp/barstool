@@ -3,10 +3,13 @@
 declare(strict_types=1);
 
 use Saloon\Http\Faking\MockClient;
-use Saloon\Http\Faking\MockResponse;
-use Illuminate\Support\Facades\Artisan;
 use Saloon\Barstool\Models\Barstool;
+use Saloon\Http\Faking\MockResponse;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Artisan;
+use Saloon\Barstool\Enums\RecordingType;
 use Saloon\Http\Connectors\NullConnector;
+use Saloon\Barstool\Jobs\RecordBarstoolJob;
 
 use function Pest\Laravel\assertDatabaseHas;
 use function Pest\Laravel\assertDatabaseCount;
@@ -564,4 +567,151 @@ it('can store response bodies where the kilobytes are below a config value', fun
         ->request_class->toBe(RequestWithConnector::class)
         ->response_body->toBe(json_encode($responseBody));
 
+});
+
+it('dispatches jobs when queue is enabled with correct payload', function () {
+    Queue::fake();
+
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.queue.enabled', true);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: ['data' => [['name' => 'John Wayne']]],
+            status: 200,
+            headers: ['Content-Type' => 'application/json'],
+        ),
+    ]);
+
+    (new SoloUserRequest)->send();
+
+    Queue::assertPushed(RecordBarstoolJob::class, 2);
+
+    Queue::assertPushed(RecordBarstoolJob::class, function (RecordBarstoolJob $job) {
+        return $job->type === RecordingType::REQUEST
+            && $job->data['connector_class'] === NullConnector::class
+            && $job->data['request_class'] === SoloUserRequest::class
+            && $job->data['method'] === 'GET'
+            && $job->data['url'] === 'https://tests.saloon.dev/api/user'
+            && $job->data['successful'] === false;
+    });
+
+    Queue::assertPushed(RecordBarstoolJob::class, function (RecordBarstoolJob $job) {
+        return $job->type === RecordingType::RESPONSE
+            && $job->data['response_status'] === 200
+            && $job->data['successful'] === true
+            && $job->data['response_body'] === json_encode(['data' => [['name' => 'John Wayne']]])
+            && array_key_exists('duration', $job->data);
+    });
+
+    assertDatabaseCount('barstools', 0);
+});
+
+it('dispatches jobs on the configured queue connection and name', function () {
+    Queue::fake();
+
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.queue.enabled', true);
+    config()->set('barstool.queue.connection', 'redis');
+    config()->set('barstool.queue.queue', 'barstool-recordings');
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: ['data' => [['name' => 'John Wayne']]],
+            status: 200,
+        ),
+    ]);
+
+    (new SoloUserRequest)->send();
+
+    Queue::assertPushed(RecordBarstoolJob::class, function (RecordBarstoolJob $job) {
+        return $job->connection === 'redis' && $job->queue === 'barstool-recordings';
+    });
+});
+
+it('processes queued jobs and creates database records with correct data', function () {
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.queue.enabled', true);
+    config()->set('queue.default', 'sync');
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: ['data' => [['name' => 'John Wayne']]],
+            status: 200,
+            headers: ['Content-Type' => 'application/json'],
+        ),
+    ]);
+
+    $response = (new SoloUserRequest)->send();
+
+    assertDatabaseCount('barstools', 1);
+
+    $uuid = $response->getPsrRequest()->getHeader('X-Barstool-UUID')[0];
+    $barstool = Barstool::where('uuid', $uuid)->sole();
+
+    expect($barstool)
+        ->connector_class->toBe(NullConnector::class)
+        ->request_class->toBe(SoloUserRequest::class)
+        ->method->toBe('GET')
+        ->url->toBe('https://tests.saloon.dev/api/user')
+        ->response_status->toBe(200)
+        ->successful->toBeTrue()
+        ->response_body->toBe(json_encode(['data' => [['name' => 'John Wayne']]]))
+        ->duration->not->toBeNull()
+        ->request_headers->toBeArray()
+        ->response_headers->toBeArray();
+});
+
+it('dispatches a fatal job when queue is enabled with correct payload', function () {
+    Queue::fake();
+
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.queue.enabled', true);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: ['error' => 'Something went wrong'],
+            status: 500,
+        )->throw(fn ($pendingRequest) => new FatalRequestException(new Exception('Fatal error'), $pendingRequest)),
+    ]);
+
+    try {
+        (new SoloUserRequest)->send();
+    } catch (FatalRequestException) {
+        // Expected
+    }
+
+    Queue::assertPushed(RecordBarstoolJob::class, function (RecordBarstoolJob $job) {
+        return $job->type === RecordingType::REQUEST
+            && $job->data['connector_class'] === NullConnector::class
+            && $job->data['request_class'] === SoloUserRequest::class;
+    });
+
+    Queue::assertPushed(RecordBarstoolJob::class, function (RecordBarstoolJob $job) {
+        return $job->type === RecordingType::FATAL
+            && $job->data['fatal_error'] === 'Fatal error'
+            && $job->data['successful'] === false
+            && $job->data['response_body'] === null
+            && array_key_exists('duration', $job->data);
+    });
+});
+
+it('does not dispatch jobs when queue is disabled', function () {
+    Queue::fake();
+
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.queue.enabled', false);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: ['data' => [['name' => 'John Wayne']]],
+            status: 200,
+        ),
+    ]);
+
+    (new SoloUserRequest)->send();
+
+    Queue::assertNothingPushed();
+
+    assertDatabaseCount('barstools', 1);
 });

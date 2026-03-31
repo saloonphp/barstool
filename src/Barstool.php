@@ -8,6 +8,8 @@ use Saloon\Http\Response;
 use Illuminate\Support\Str;
 use Saloon\Http\PendingRequest;
 use Psr\Http\Message\UriInterface;
+use Saloon\Barstool\Enums\RecordingType;
+use Saloon\Barstool\Jobs\RecordBarstoolJob;
 use Saloon\Contracts\Body\BodyRepository;
 use Saloon\Repositories\Body\StreamBodyRepository;
 use Saloon\Exceptions\Request\FatalRequestException;
@@ -132,10 +134,7 @@ class Barstool
 
         $data->headers()->add('X-Barstool-UUID', $uuid);
 
-        $entry = new Models\Barstool;
-        $entry->uuid = $uuid;
-        $entry->fill([...self::getRequestData($data)]);
-        $entry->save();
+        self::persist(RecordingType::REQUEST, self::getRequestData($data), $uuid);
     }
 
     private static function recordResponse(Response $data): void
@@ -147,15 +146,12 @@ class Barstool
             return;
         }
 
-        $entry = Models\Barstool::query()->firstWhere('uuid', $uuid);
+        $payload = [
+            'duration' => self::calculateDuration($data),
+            ...self::getResponseData($data),
+        ];
 
-        if ($entry) {
-            $entry->fill([
-                'duration' => self::calculateDuration($data),
-                ...self::getResponseData($data),
-            ]);
-            $entry->save();
-        }
+        self::persist(RecordingType::RESPONSE, $payload, $uuid);
     }
 
     public static function calculateDuration(Response|PendingRequest $data): int
@@ -173,15 +169,36 @@ class Barstool
         $pendingRequest = $data->getPendingRequest();
         $uuid = $pendingRequest->headers()->get('X-Barstool-UUID');
 
-        $entry = Models\Barstool::query()->firstWhere('uuid', $uuid);
+        $payload = [
+            'duration' => self::calculateDuration($pendingRequest),
+            ...self::getFatalData($data),
+        ];
 
-        if ($entry) {
-            $entry->fill([
-                'duration' => self::calculateDuration($pendingRequest),
-                ...self::getFatalData($data),
-            ]);
-            $entry->save();
+        self::persist(RecordingType::FATAL, $payload, $uuid);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private static function persist(RecordingType $type, array $payload, string $uuid): void
+    {
+        if (self::shouldQueue()) {
+            RecordBarstoolJob::dispatch($type, $payload, $uuid)
+                ->onConnection(config('barstool.queue.connection'))
+                ->onQueue(config('barstool.queue.queue'));
+
+            return;
         }
+
+        Models\Barstool::query()->updateOrCreate(
+            ['uuid' => $uuid],
+            $payload,
+        );
+    }
+
+    private static function shouldQueue(): bool
+    {
+        return config('barstool.queue.enabled', false) === true;
     }
 
     /**

@@ -66,4 +66,15 @@ return [
         // SensitiveRequest::class // Exclude ALL headers for this request
         // SensitiveConnector::class // Exclude `token` header for this request
     ],
+
+    /*
+     * Queue configuration for recording.
+     * When enabled, recordings will be dispatched as queued jobs
+     * instead of being written to the database synchronously.
+     */
+    'queue' => [
+        'enabled' => env('BARSTOOL_QUEUE_ENABLED', false),
+        'connection' => env('BARSTOOL_QUEUE_CONNECTION'),
+        'queue' => env('BARSTOOL_QUEUE_NAME'),
+    ],
 ];
