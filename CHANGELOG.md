@@ -2,6 +2,18 @@
 
 All notable changes to `barstool` will be documented in this file.
 
+## v1.1.0 - 2026-03-31
+
+### What's Changed
+
+* Add queue support for Barstool recordings by @niladam in https://github.com/saloonphp/barstool/pull/1
+
+### New Contributors
+
+* @niladam made their first contribution in https://github.com/saloonphp/barstool/pull/1
+
+**Full Changelog**: https://github.com/saloonphp/barstool/compare/v1.0.0...v1.1.0
+
 ## v1.0.0 - 2026-03-26
 
 **Full Changelog**: https://github.com/saloonphp/barstool/commits/v1.0.0
