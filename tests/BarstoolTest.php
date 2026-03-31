@@ -91,6 +91,24 @@ it('can change the database connection', function () {
     expect(Barstool::make()->getConnectionName())->toBe('sqlite');
 });
 
+it('uses the correct config key for the migration database connection', function () {
+    $migration = include __DIR__.'/../database/migrations/create_barstools_table.php.stub';
+
+    // The migration should use the 'barstool.connection' config key
+    config()->set('barstool.connection', 'pgsql');
+    expect($migration->getConnection())->toBe('pgsql');
+
+    // It should fall back to 'barstool.database_connection' for backwards compatibility
+    config()->set('barstool.connection', null);
+    config()->set('barstool.database_connection', 'sqlite');
+    expect($migration->getConnection())->toBe('sqlite');
+
+    // 'barstool.connection' takes priority over 'barstool.database_connection'
+    config()->set('barstool.connection', 'mysql');
+    config()->set('barstool.database_connection', 'sqlite');
+    expect($migration->getConnection())->toBe('mysql');
+});
+
 it('can change the number of days to keep recordings for', function () {
     // Check the default value is 30
     expect(config('barstool.keep_for_days'))->toBe(30);
