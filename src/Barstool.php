@@ -126,9 +126,13 @@ class Barstool
 
     private static function recordRequest(PendingRequest $data): void
     {
-        $uuid = Str::uuid()->toString();
+        $uuid = $data->headers()->get('X-Barstool-UUID');
 
-        $data->headers()->add('X-Barstool-UUID', $uuid);
+        if (is_null($uuid)) {
+            $uuid = Str::uuid()->toString();
+
+            $data->headers()->add('X-Barstool-UUID', $uuid);
+        }
 
         self::persist(RecordingType::REQUEST, self::getRequestData($data), $uuid);
     }
