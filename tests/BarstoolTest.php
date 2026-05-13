@@ -283,7 +283,7 @@ it('correctly records headers', function () {
     expect($barstool->response_headers)->toBe(['token' => 'abc123']);
 });
 
-it('stores the correct uuid if one is provided by the request', function () {
+it('stores the barstool correctly with and without a uuid provided in the request headers', function ($sendUuid) {
     MockClient::global([
         RequestWithConnector::class => MockResponse::make(
             body: [
@@ -300,7 +300,9 @@ it('stores the correct uuid if one is provided by the request', function () {
     $uuid = (string) Str::uuid();
     $connector = new RandomConnector;
     $request = new RequestWithConnector;
-    $request->headers()->add('X-Barstool-UUID', $uuid);
+    if ($sendUuid) {
+        $request->headers()->add('X-Barstool-UUID', $uuid);
+    }
     $response = $connector->send($request);
 
     expect($response->status())->toBe(200);
@@ -321,9 +323,14 @@ it('stores the correct uuid if one is provided by the request', function () {
 
     assertDatabaseCount('barstools', 1);
 
-    $barstool = Barstool::where('uuid', $uuid)->sole();
-    expect($barstool->uuid)->toBe($uuid);
-});
+    if ($sendUuid) {
+        $barstool = Barstool::where('uuid', $uuid)->sole();
+        expect($barstool->uuid)->toBe($uuid);
+    }
+})->with([
+    true,
+    false,
+]);
 
 it('correctly records body, query, status & method', function () {
     MockClient::global([
