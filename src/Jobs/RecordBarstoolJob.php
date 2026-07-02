@@ -38,18 +38,20 @@ class RecordBarstoolJob implements ShouldBeUnique, ShouldQueue
     public function handle(): void
     {
        if ($this->type === RecordingType::REQUEST) {
-            Barstool::create([
-                'uuid' => $this->uuid,
-                ...$this->data,
-            ]);
+            Barstool::query()
+                ->create([
+                    'uuid' => $this->uuid,
+                    ...$this->data,
+                ]);
             return;
         }
 
-        $barstool = Barstool::where('uuid', $this->uuid)
+        $barstool = Barstool::query()
+            ->where('uuid', $this->uuid)
             ->first();
 
-        if ($barstool === null) {            
-            $this->release(2);            
+        if ($barstool === null) {
+            $this->release(2);
             return;
         }
 
