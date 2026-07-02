@@ -21,8 +21,9 @@ class RecordBarstoolJob implements ShouldBeUnique, ShouldQueue
 
     public int $uniqueFor = 60;
 
+    
     /**
-     * @param  array<string, mixed>  $data
+     * @param  array<model-property<Barstool>, mixed>  $data
      */
     public function __construct(
         public readonly RecordingType $type,
