@@ -265,15 +265,22 @@ class Barstool
             return 'REDACTED';
         }
 
-        $body = $response->body();
+        // Non-seekable bodies (e.g. Guzzle's `stream => true`) can only be read once, so reading
+        // one here would leave it at EOF and hand the application an empty body. Record a
+        // placeholder instead, matching how streamed request bodies are handled.
+        if (! $response->getPsrResponse()->getBody()->isSeekable()) {
+            return '<Streamed Body>';
+        }
 
         $contentTypeHeaderKey = $response->headers()->get('Content-Type') ? 'Content-Type' : 'content-type';
 
-        if (Str::startsWith(mb_strtolower((string) $response->headers()->get($contentTypeHeaderKey)), self::supportedContentTypes())) {
-            return self::checkContentSize($body) ? $body : '<Unsupported Barstool Response Content>';
+        if (! Str::startsWith(mb_strtolower((string) $response->headers()->get($contentTypeHeaderKey)), self::supportedContentTypes())) {
+            return '<Unsupported Barstool Response Content>';
         }
 
-        return '<Unsupported Barstool Response Content>';
+        $body = $response->body();
+
+        return self::checkContentSize($body) ? $body : '<Unsupported Barstool Response Content>';
     }
 
     /**

@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use GuzzleHttp\Psr7\Utils;
+use GuzzleHttp\Psr7\NoSeekStream;
 use Saloon\Http\Faking\MockClient;
 use Saloon\Barstool\Models\Barstool;
 use Saloon\Http\Faking\MockResponse;
@@ -10,11 +12,16 @@ use Illuminate\Support\Facades\Artisan;
 use Saloon\Barstool\Enums\RecordingType;
 use Saloon\Http\Connectors\NullConnector;
 use Saloon\Barstool\Jobs\RecordBarstoolJob;
+use Saloon\Http\Response as SaloonResponse;
 
 use function Pest\Laravel\assertDatabaseHas;
+
+use GuzzleHttp\Psr7\Response as Psr7Response;
+
 use function Pest\Laravel\assertDatabaseCount;
 use function Pest\Laravel\assertDatabaseEmpty;
 
+use Saloon\Barstool\Barstool as BarstoolRecorder;
 use Saloon\Exceptions\Request\FatalRequestException;
 use Saloon\Barstool\Tests\Fixtures\Requests\PostRequest;
 use Saloon\Barstool\Tests\Fixtures\Requests\GetFileRequest;
@@ -712,6 +719,36 @@ it('dispatches a fatal job when queue is enabled with correct payload', function
             && $job->data['response_body'] === null
             && array_key_exists('duration', $job->data);
     });
+});
+
+it('does not consume non-seekable streamed response bodies', function () {
+    config()->set('barstool.enabled', true);
+
+    // Sending with Guzzle's `stream => true` config produces a response backed by a
+    // non-seekable socket stream, which can only be read once. We recreate that
+    // here with a NoSeekStream so the test doesn't need a real HTTP call.
+
+    $pendingRequest = (new SoloUserRequest)->createPendingRequest();
+
+    $psrResponse = new Psr7Response(
+        status: 200,
+        headers: ['Content-Type' => 'application/json'],
+        body: new NoSeekStream(Utils::streamFor('{"data":"yeehaw"}')),
+    );
+
+    $response = SaloonResponse::fromPsrResponse($psrResponse, $pendingRequest, $pendingRequest->createPsrRequest());
+
+    BarstoolRecorder::record($response);
+
+    $barstool = Barstool::where('uuid', $pendingRequest->headers()->get('X-Barstool-UUID'))->sole();
+
+    expect($barstool)
+        ->response_status->toBe(200)
+        ->successful->toBeTrue()
+        ->response_body->toBe('<Streamed Body>');
+
+    // Recording must not have drained the stream - the application still needs to read it
+    expect($response->stream()->getContents())->toBe('{"data":"yeehaw"}');
 });
 
 it('does not dispatch jobs when queue is disabled', function () {
