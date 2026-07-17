@@ -8,6 +8,7 @@ use Saloon\Http\Response;
 use Illuminate\Support\Str;
 use Saloon\Http\PendingRequest;
 use Psr\Http\Message\UriInterface;
+use Illuminate\Support\Facades\Context;
 use Saloon\Barstool\Enums\RecordingType;
 use Saloon\Contracts\Body\BodyRepository;
 use Saloon\Barstool\Jobs\RecordBarstoolJob;
@@ -17,6 +18,42 @@ use Saloon\Repositories\Body\MultipartBodyRepository;
 
 class Barstool
 {
+    private const string CONTEXT_KEY = 'barstool:context';
+
+    /**
+     * Merge the given key/value pairs into the Barstool context.
+     *
+     * Context is stored as hidden data on Laravel's Context, so it is carried
+     * into queued jobs but never leaks into the application's log context.
+     *
+     * @param  array<string, mixed>  $context
+     */
+    public static function context(array $context): void
+    {
+        Context::addHidden(self::CONTEXT_KEY, [...self::getContext(), ...$context]);
+    }
+
+    public static function addContext(string $key, mixed $value): void
+    {
+        self::context([$key => $value]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function getContext(): array
+    {
+        /** @var array<string, mixed> $context */
+        $context = Context::getHidden(self::CONTEXT_KEY, []);
+
+        return $context;
+    }
+
+    public static function flushContext(): void
+    {
+        Context::forgetHidden(self::CONTEXT_KEY);
+    }
+
     public static function shouldRecord(PendingRequest|Response|FatalRequestException $data): bool
     {
         if (config('barstool.enabled') !== true) {
@@ -56,7 +93,8 @@ class Barstool
      *      url: string,
      *      request_headers: array<string, string>|null,
      *      request_body: BodyRepository|string|null,
-     *      successful: false
+     *      successful: false,
+     *      context?: array<string, mixed>
      * }
      */
     private static function getRequestData(PendingRequest $request): array
@@ -69,7 +107,7 @@ class Barstool
             default => $body,
         };
 
-        return [
+        $data = [
             'connector_class' => get_class($request->getConnector()),
             'request_class' => get_class($request->getRequest()),
             'method' => $request->getMethod()->value,
@@ -78,6 +116,16 @@ class Barstool
             'request_body' => $body,
             'successful' => false,
         ];
+
+        // Only reference the context column when there is context to store, so upgraded
+        // installs that have not run the add-context migration are unaffected.
+        $context = self::getContext();
+
+        if ($context !== []) {
+            $data['context'] = $context;
+        }
+
+        return $data;
     }
 
     /**

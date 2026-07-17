@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 /**
  * @property string $uuid
  * @property CarbonInterface $created_at
+ * @property array<string, mixed>|null $context
  */
 class Barstool extends Model
 {
@@ -38,12 +39,14 @@ class Barstool extends Model
         'successful',
         'duration',
         'fatal_error',
+        'context',
     ];
 
     protected $casts = [
         'request_headers' => 'array',
         'response_headers' => 'array',
         'successful' => 'boolean',
+        'context' => 'array',
     ];
 
     /**

@@ -770,3 +770,128 @@ it('does not dispatch jobs when queue is disabled', function () {
 
     assertDatabaseCount('barstools', 1);
 });
+
+it('records context alongside the request', function () {
+    config()->set('barstool.enabled', true);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: ['data' => [['name' => 'John Wayne']]],
+            status: 200,
+        ),
+    ]);
+
+    BarstoolRecorder::context([
+        'user_id' => 5,
+        'tenant_id' => 9,
+    ]);
+
+    $response = (new SoloUserRequest)->send();
+
+    $uuid = $response->getPendingRequest()->headers()->get('X-Barstool-UUID');
+    $barstool = Barstool::where('uuid', $uuid)->sole();
+
+    expect($barstool->context)->toBe([
+        'user_id' => 5,
+        'tenant_id' => 9,
+    ]);
+});
+
+it('merges context and overwrites existing keys', function () {
+    BarstoolRecorder::context(['user_id' => 5, 'tenant_id' => 9]);
+    BarstoolRecorder::addContext('user_id', 10);
+    BarstoolRecorder::context(['job' => 'user-sync']);
+
+    expect(BarstoolRecorder::getContext())->toBe([
+        'user_id' => 10,
+        'tenant_id' => 9,
+        'job' => 'user-sync',
+    ]);
+
+    BarstoolRecorder::flushContext();
+
+    expect(BarstoolRecorder::getContext())->toBe([]);
+});
+
+it('stores no context when none has been set', function () {
+    config()->set('barstool.enabled', true);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: ['data' => [['name' => 'John Wayne']]],
+            status: 200,
+        ),
+    ]);
+
+    (new SoloUserRequest)->send();
+
+    assertDatabaseCount('barstools', 1);
+    expect(Barstool::sole()->context)->toBeNull();
+});
+
+it('omits the context key from queued payloads when no context has been set', function () {
+    Queue::fake();
+
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.queue.enabled', true);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: ['data' => [['name' => 'John Wayne']]],
+            status: 200,
+        ),
+    ]);
+
+    (new SoloUserRequest)->send();
+
+    Queue::assertPushed(RecordBarstoolJob::class, function (RecordBarstoolJob $job) {
+        return $job->type === RecordingType::REQUEST
+            && array_key_exists('context', $job->data) === false;
+    });
+});
+
+it('includes context in queued payloads', function () {
+    Queue::fake();
+
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.queue.enabled', true);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: ['data' => [['name' => 'John Wayne']]],
+            status: 200,
+        ),
+    ]);
+
+    BarstoolRecorder::addContext('user_id', 5);
+
+    (new SoloUserRequest)->send();
+
+    Queue::assertPushed(RecordBarstoolJob::class, function (RecordBarstoolJob $job) {
+        return $job->type === RecordingType::REQUEST
+            && $job->data['context'] === ['user_id' => 5];
+    });
+});
+
+it('exposes the recording uuid on the sent request for correlation', function () {
+    config()->set('barstool.enabled', true);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: ['data' => [['name' => 'John Wayne']]],
+            status: 200,
+        ),
+    ]);
+
+    $response = (new SoloUserRequest)->send();
+
+    // The documented pattern for linking your own records to a barstool row:
+    // read the generated UUID back off the sent request.
+    $uuid = $response->getPendingRequest()->headers()->get('X-Barstool-UUID');
+
+    expect($uuid)->toBeString()->not->toBeEmpty();
+
+    $barstool = Barstool::where('uuid', $uuid)->sole();
+
+    expect($barstool->uuid)->toBe($uuid);
+});

@@ -68,6 +68,55 @@ The logging will even log fatal errors caused by your saloon requests so you can
 > [!TIP]
 > We will be adding more features soon, so keep an eye out for updates!
 
+## Adding context to recordings
+
+Sometimes the request and response alone don't tell the whole story. You can attach your own context to recordings — the current user, tenant, job name, anything you like — and it will be stored in the `context` column of the `barstools` table as JSON:
+
+```php
+use Saloon\Barstool\Barstool;
+
+Barstool::context([
+    'user_id' => auth()->id(),
+    'tenant_id' => $tenant->id,
+]);
+
+// Or add a single key:
+Barstool::addContext('job', 'user-sync');
+```
+
+Once set, the context is stored against every request Barstool records until the end of the current request or job. Calling `context()` again merges the new keys in (overwriting any that already exist), and you can clear everything with `Barstool::flushContext()`.
+
+Under the hood this uses [Laravel Context](https://laravel.com/docs/context) hidden data, which means:
+
+- Context added in a controller is carried into queued jobs automatically, so requests sent from inside a job still record it.
+- It is reset between requests and jobs by the framework, so nothing leaks across tenants or users.
+- It stays out of your application's log context.
+
+> [!IMPORTANT]
+> If you are upgrading from an earlier version of Barstool, publish and run the migrations again to add the new `context` column:
+> ```bash
+> php artisan vendor:publish --tag="barstool-migrations"
+> php artisan migrate
+> ```
+> Barstool only touches the `context` column when you actually set context, so upgrading the package without running the migration is safe until you start using this feature.
+
+## Correlating Barstool records with your own models
+
+If you want a row in one of your own tables to point at a Barstool recording (rather than storing extra data on the recording itself), you can read the recording's UUID straight off the sent request. Barstool adds an `X-Barstool-UUID` header to every request it records:
+
+```php
+$response = $connector->send($request);
+
+$barstoolUuid = $response->getPendingRequest()->headers()->get('X-Barstool-UUID');
+
+if ($response->failed()) {
+    UserSyncLog::create([
+        'user_id' => auth()->id(),
+        'barstool_uuid' => $barstoolUuid,
+    ]);
+}
+```
+
 ## Queue Support
 
 By default, Barstool writes recordings to the database synchronously. If you'd like to offload this to a queue, you can enable it in the config:
