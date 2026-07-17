@@ -13,6 +13,12 @@ The package is designed to be as simple as possible to get up and running, with 
 
 So pull up a barstool, grab a drink, and let's get logging in the Saloon! Yeehaw!
 
+## Requirements
+
+- PHP 8.3+
+- Laravel 12+
+- Saloon v4
+
 ## Installation
 
 You can install the package via composer:
@@ -34,20 +40,12 @@ You can publish the config file with:
 php artisan vendor:publish --tag="barstool-config"
 ```
 
-You should also set up Laravel Model Pruning in your scheduler. Please check the Laravel Documentation for your version to know where to put the code below.
-```php
-use Saloon\Barstool\Models\Barstool;
-
-
-Schedule::command('model:prune', [
-    '--model' => [Barstool::class],
-])->daily();
-```
+Finally, set up [pruning](#pruning-old-recordings) in your scheduler so your logs don't grow forever.
 
 ## Usage
 
 That's all folks!
-Once installed, it will start logging your [Saloon](https://github.com/saloonphp/saloon) requests automatically.
+Once installed, Barstool starts logging your [Saloon](https://github.com/saloonphp/saloon) requests automatically.
 Check the config out for more control.
 
 Here are some of the things you can see with Barstool:
@@ -62,13 +60,27 @@ Here are some of the things you can see with Barstool:
 - Response Body
 - Response Duration
 
-The logging will even log fatal errors caused by your saloon requests so you can see what went wrong.
+Barstool will even log fatal errors caused by your Saloon requests, so you can see what went wrong.
 <p><img src="/art/fatal_error.png" alt="Screenshot of the fatal error logged in the database"></p>
 
 > [!TIP]
 > We will be adding more features soon, so keep an eye out for updates!
 
-## Choosing what gets recorded
+## Configuration
+
+Everything below lives in `config/barstool.php` once published.
+
+### Enabling & disabling
+
+Barstool is enabled out of the box. To switch it off entirely — no requests recorded — set the env variable:
+
+```dotenv
+BARSTOOL_ENABLED=false
+```
+
+Handy for local development or test environments where you don't want the noise.
+
+### Choosing what gets recorded
 
 By default, Barstool records every Saloon request. You can narrow that down in two directions:
 
@@ -93,6 +105,101 @@ By default, Barstool records every Saloon request. You can narrow that down in t
 ```
 
 A request is recorded if it matches either `only` list (or both lists are empty), and the `ignore` list always takes precedence — so you can allow a whole connector and still ignore individual requests on it.
+
+### Keeping only failed responses
+
+If you mainly use Barstool to investigate failures, you can skip storing successful response data:
+
+```php
+'keep_successful_responses' => false,
+```
+
+The request itself is still recorded — you just won't get the response body, headers, and status for successful calls. Failed responses and fatal errors are always kept.
+
+### Redacting sensitive request headers
+
+Headers listed in `excluded_request_headers` are stored with their value replaced by `REDACTED`. The `Authorization` header is redacted by default.
+
+```php
+'excluded_request_headers' => [
+    'Authorization',
+    'X-Api-Key',            // redact this header on every request
+    SensitiveRequest::class, // redact ALL headers for this request
+    SensitiveConnector::class, // redact ALL headers for this connector
+    // '*',                 // redact ALL headers on every request
+],
+```
+
+When `'*'` or a connector/request class matches, every header is dropped from the recording except Barstool's own `X-Barstool-UUID` correlation header.
+
+### Excluding response bodies
+
+Response bodies for sensitive endpoints can be kept out of the database entirely — they are stored as `REDACTED`:
+
+```php
+'excluded_response_body' => [
+    SensitiveConnector::class, // exclude bodies for a whole connector
+    SensitiveRequest::class,   // or a single request
+    // '*',                    // or every response
+],
+```
+
+### Response body limits
+
+To keep the table lean, Barstool only stores response bodies that are:
+
+- **A supported content type** — JSON, XML, SOAP, HTML, or plain text. Anything else (files, images, binary data) is stored as `<Unsupported Barstool Response Content>`.
+- **Within the size limit** — `max_response_size` (in kilobytes, default `100`). Oversized bodies are stored as `<Unsupported Barstool Response Content>` too.
+
+```php
+'max_response_size' => 100,
+```
+
+You may also spot a couple of other placeholder values in the `barstools` table: streamed request/response bodies are stored as `<Streamed Body>` (reading them would consume the stream before your application gets it), and multipart request bodies as `<Multipart Body>`.
+
+### Database connection
+
+Recordings are stored on your default database connection. To keep them elsewhere — a separate database, or just a different connection — set:
+
+```dotenv
+BARSTOOL_DB_CONNECTION=barstool
+```
+
+The migration and the `Barstool` model both respect this connection.
+
+### Pruning old recordings
+
+Recordings are kept for 30 days by default, controlled by:
+
+```php
+'keep_for_days' => 30,
+```
+
+Pruning uses [Laravel's model pruning](https://laravel.com/docs/eloquent#pruning-models), so you need to schedule it. Please check the Laravel Documentation for your version to know where to put the code below.
+
+```php
+use Saloon\Barstool\Models\Barstool;
+
+Schedule::command('model:prune', [
+    '--model' => [Barstool::class],
+])->daily();
+```
+
+### Queue support
+
+By default, Barstool writes recordings to the database synchronously. If you'd like to offload this to a queue, you can enable it in the config:
+
+```php
+'queue' => [
+    'enabled' => env('BARSTOOL_QUEUE_ENABLED', false),
+    'connection' => env('BARSTOOL_QUEUE_CONNECTION'),  // null uses default connection
+    'queue' => env('BARSTOOL_QUEUE_NAME'),             // null uses default queue
+],
+```
+
+Or simply set `BARSTOOL_QUEUE_ENABLED=true` in your `.env` file.
+
+When queue support is enabled, recordings are dispatched as jobs instead of being written inline. Each job is **unique** (preventing duplicates) and uses **idempotent writes** (`updateOrCreate`), so recordings are safe even if a job is retried. Failed jobs will automatically retry up to 3 times with a backoff of 5 and 30 seconds.
 
 ## Adding context to recordings
 
@@ -142,24 +249,6 @@ if ($response->failed()) {
     ]);
 }
 ```
-
-## Queue Support
-
-By default, Barstool writes recordings to the database synchronously. If you'd like to offload this to a queue, you can enable it in the config:
-
-```php
-// config/barstool.php
-'queue' => [
-    'enabled' => env('BARSTOOL_QUEUE_ENABLED', false),
-    'connection' => env('BARSTOOL_QUEUE_CONNECTION'),  // null uses default connection
-    'queue' => env('BARSTOOL_QUEUE_NAME'),             // null uses default queue
-],
-```
-
-Or simply set `BARSTOOL_QUEUE_ENABLED=true` in your `.env` file.
-
-When queue support is enabled, recordings are dispatched as jobs instead of being written inline. Each job is **unique** (preventing duplicates) and uses **idempotent writes** (`updateOrCreate`), so recordings are safe even if a job is retried. Failed jobs will automatically retry up to 3 times with a backoff of 5 and 30 seconds.
-
 
 ## Testing
 

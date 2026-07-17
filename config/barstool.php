@@ -5,7 +5,7 @@ declare(strict_types=1);
 return [
 
     /*
-     * If disabled, no requests will be recorded and the UI will not be accessible.
+     * If disabled, no requests will be recorded.
      */
     'enabled' => env('BARSTOOL_ENABLED', true),
 
