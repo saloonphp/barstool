@@ -895,3 +895,113 @@ it('exposes the recording uuid on the sent request for correlation', function ()
 
     expect($barstool->uuid)->toBe($uuid);
 });
+
+it('only records connectors on the only list when configured', function () {
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.only.connectors', [RandomConnector::class]);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(body: ['data' => 'solo'], status: 200),
+        RequestWithConnector::class => MockResponse::make(body: ['data' => 'connector'], status: 200),
+    ]);
+
+    $response = (new SoloUserRequest)->send();
+
+    expect($response->getPendingRequest()->headers()->get('X-Barstool-UUID'))->toBeNull();
+    assertDatabaseCount('barstools', 0);
+
+    $response = (new RandomConnector)->send(new RequestWithConnector);
+
+    expect($response->getPendingRequest()->headers()->get('X-Barstool-UUID'))->not()->toBeNull();
+    assertDatabaseCount('barstools', 1);
+});
+
+it('only records requests on the only list when configured', function () {
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.only.requests', [SoloUserRequest::class]);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(body: ['data' => 'solo'], status: 200),
+        RequestWithConnector::class => MockResponse::make(body: ['data' => 'connector'], status: 200),
+    ]);
+
+    (new RandomConnector)->send(new RequestWithConnector);
+
+    assertDatabaseCount('barstools', 0);
+
+    (new SoloUserRequest)->send();
+
+    assertDatabaseCount('barstools', 1);
+});
+
+it('records a request matching either only list', function () {
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.only.connectors', [RandomConnector::class]);
+    config()->set('barstool.only.requests', [SoloUserRequest::class]);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(body: ['data' => 'solo'], status: 200),
+        RequestWithConnector::class => MockResponse::make(body: ['data' => 'connector'], status: 200),
+    ]);
+
+    // Allowed via only.requests
+    (new SoloUserRequest)->send();
+
+    // Allowed via only.connectors
+    (new RandomConnector)->send(new RequestWithConnector);
+
+    assertDatabaseCount('barstools', 2);
+});
+
+it('applies the ignore list on top of the only list', function () {
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.only.connectors', [RandomConnector::class]);
+    config()->set('barstool.ignore.requests', [RequestWithConnector::class]);
+
+    MockClient::global([
+        RequestWithConnector::class => MockResponse::make(body: ['data' => 'ignored'], status: 200),
+        PostRequest::class => MockResponse::make(body: ['data' => 'sibling'], status: 200),
+    ]);
+
+    $connector = new RandomConnector;
+
+    // Connector is allowed, but this request is ignored - ignore wins
+    $connector->send(new RequestWithConnector);
+
+    assertDatabaseCount('barstools', 0);
+
+    // Sibling request on the same allowed connector is still recorded
+    $connector->send(new PostRequest);
+
+    assertDatabaseCount('barstools', 1);
+});
+
+it('does not record a class listed in both only and ignore', function () {
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.only.connectors', [RandomConnector::class]);
+    config()->set('barstool.ignore.connectors', [RandomConnector::class]);
+
+    MockClient::global([
+        RequestWithConnector::class => MockResponse::make(body: ['data' => 'conflict'], status: 200),
+    ]);
+
+    (new RandomConnector)->send(new RequestWithConnector);
+
+    assertDatabaseCount('barstools', 0);
+});
+
+it('records everything when the only lists are empty', function () {
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.only.connectors', []);
+    config()->set('barstool.only.requests', []);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(body: ['data' => 'solo'], status: 200),
+        RequestWithConnector::class => MockResponse::make(body: ['data' => 'connector'], status: 200),
+    ]);
+
+    (new SoloUserRequest)->send();
+    (new RandomConnector)->send(new RequestWithConnector);
+
+    assertDatabaseCount('barstools', 2);
+});

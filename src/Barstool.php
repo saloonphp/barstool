@@ -60,16 +60,55 @@ class Barstool
             return false;
         }
 
+        [$connector, $request] = self::resolveClasses($data);
+
+        return self::passesOnlyList($connector, $request)
+            && self::passesIgnoreList($connector, $request);
+    }
+
+    /**
+     * @return array{class-string, class-string}
+     */
+    private static function resolveClasses(PendingRequest|Response|FatalRequestException $data): array
+    {
         [$connector, $request] = match (true) {
             $data instanceof PendingRequest => [$data->getConnector(), $data->getRequest()],
             $data instanceof Response, $data instanceof FatalRequestException => [$data->getPendingRequest()->getConnector(), $data->getPendingRequest()->getRequest()],
         };
 
-        if (in_array(get_class($connector), config('barstool.ignore.connectors', []))) {
+        return [get_class($connector), get_class($request)];
+    }
+
+    /**
+     * When either `only` list is configured, a request must match one of them
+     * to be recorded. Empty lists mean everything passes.
+     *
+     * @param  class-string  $connector
+     * @param  class-string  $request
+     */
+    private static function passesOnlyList(string $connector, string $request): bool
+    {
+        $onlyConnectors = config('barstool.only.connectors', []);
+        $onlyRequests = config('barstool.only.requests', []);
+
+        if ($onlyConnectors === [] && $onlyRequests === []) {
+            return true;
+        }
+
+        return in_array($connector, $onlyConnectors) || in_array($request, $onlyRequests);
+    }
+
+    /**
+     * @param  class-string  $connector
+     * @param  class-string  $request
+     */
+    private static function passesIgnoreList(string $connector, string $request): bool
+    {
+        if (in_array($connector, config('barstool.ignore.connectors', []))) {
             return false;
         }
 
-        if (in_array(get_class($request), config('barstool.ignore.requests', []))) {
+        if (in_array($request, config('barstool.ignore.requests', []))) {
             return false;
         }
 

@@ -31,6 +31,21 @@ return [
     'keep_successful_responses' => true,
 
     /*
+     * If any connectors or requests are listed here, ONLY those will be recorded
+     * and everything else is excluded automatically.
+     * Leave both lists empty to record everything (default).
+     * The `ignore` list below always takes precedence over this list.
+     */
+    'only' => [
+        'connectors' => [
+            // SomeConnector::class,
+        ],
+        'requests' => [
+            // SomeRequest::class,
+        ],
+    ],
+
+    /*
      * Any connectors or requests that should be ignored from recording.
      */
     'ignore' => [

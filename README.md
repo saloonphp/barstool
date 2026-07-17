@@ -68,6 +68,32 @@ The logging will even log fatal errors caused by your saloon requests so you can
 > [!TIP]
 > We will be adding more features soon, so keep an eye out for updates!
 
+## Choosing what gets recorded
+
+By default, Barstool records every Saloon request. You can narrow that down in two directions:
+
+- **`only`** — an allowlist. If any connectors or requests are listed, only those are recorded and everything else is skipped automatically. Handy when you have lots of connectors but only care about a few.
+- **`ignore`** — a denylist. Listed connectors or requests are never recorded.
+
+```php
+// config/barstool.php
+'only' => [
+    'connectors' => [
+        StripeConnector::class, // record everything sent through this connector...
+    ],
+    'requests' => [],
+],
+
+'ignore' => [
+    'connectors' => [],
+    'requests' => [
+        StripeHealthCheckRequest::class, // ...except this noisy request
+    ],
+],
+```
+
+A request is recorded if it matches either `only` list (or both lists are empty), and the `ignore` list always takes precedence — so you can allow a whole connector and still ignore individual requests on it.
+
 ## Adding context to recordings
 
 Sometimes the request and response alone don't tell the whole story. You can attach your own context to recordings — the current user, tenant, job name, anything you like — and it will be stored in the `context` column of the `barstools` table as JSON:
