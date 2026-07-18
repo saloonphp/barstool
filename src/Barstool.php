@@ -257,9 +257,20 @@ class Barstool
             return;
         }
 
+        // When successful responses are not kept, still record the outcome
+        // (status, successful, duration) so the row does not read as a failure -
+        // only the body and headers are omitted.
+        $keepResponse = $data->failed() || config('barstool.keep_successful_responses') !== false;
+
         $payload = [
             'duration' => self::calculateDuration($data),
-            ...self::getResponseData($data),
+            ...($keepResponse ? self::getResponseData($data) : [
+                'url' => $data->getPsrRequest()->getUri(),
+                'response_headers' => null,
+                'response_body' => null,
+                'response_status' => $data->status(),
+                'successful' => $data->successful(),
+            ]),
         ];
 
         self::persist(RecordingType::RESPONSE, $payload, $uuid);
@@ -273,10 +284,12 @@ class Barstool
             ? $data->getPendingRequest()->config()
             : $data->config();
 
-        $requestTime = (int) $config->get('barstool-request-time');
-        $responseTime = (int) $config->get('barstool-response-time', microtime(true) * 1000);
+        // Subtract the raw float timestamps before rounding - truncating each
+        // timestamp first introduces up to +-1ms of error on the duration.
+        $requestTime = (float) $config->get('barstool-request-time');
+        $responseTime = (float) $config->get('barstool-response-time', microtime(true) * 1000);
 
-        return $responseTime - $requestTime;
+        return (int) round($responseTime - $requestTime);
     }
 
     private static function recordFatal(FatalRequestException $data): void
@@ -423,7 +436,8 @@ class Barstool
         try {
             $body = (string) $body;
 
-            return intdiv(mb_strlen($body), 1000) <= config('barstool.max_response_size', 100);
+            // strlen, not mb_strlen: the limit is about storage size, so count bytes
+            return intdiv(strlen($body), 1000) <= config('barstool.max_response_size', 100);
         } catch (\Throwable) {
             return false;
         }
