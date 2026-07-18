@@ -182,11 +182,39 @@ class Barstool
 
         return [
             'url' => $response->getPsrRequest()->getUri(),
-            'response_headers' => $response->headers()->all(),
+            'response_headers' => self::getResponseHeaders($response),
             'response_body' => $responseBody,
             'response_status' => $response->status(),
             'successful' => $response->successful(),
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function getResponseHeaders(Response $response): array
+    {
+        $excludedHeaders = config('barstool.excluded_response_headers', []);
+        $headers = collect($response->headers()->all());
+
+        // '*' or a listed connector/request class redacts every header value
+        if (in_array('*', $excludedHeaders)
+            || in_array(get_class($response->getConnector()), $excludedHeaders)
+            || in_array(get_class($response->getRequest()), $excludedHeaders)) {
+            return $headers->map(fn () => 'REDACTED')->toArray();
+        }
+
+        // Header names are matched case-insensitively, consistent with the
+        // request-side exclusions.
+        $excludedHeaders = array_map(mb_strtolower(...), $excludedHeaders);
+
+        return $headers->map(function ($value, $key) use ($excludedHeaders) {
+            if (in_array(mb_strtolower($key), $excludedHeaders)) {
+                $value = 'REDACTED';
+            }
+
+            return $value;
+        })->toArray();
     }
 
     /**

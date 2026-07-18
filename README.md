@@ -132,6 +132,21 @@ Headers listed in `excluded_request_headers` are stored with their value replace
 
 When `'*'` or a connector/request class matches, every header is dropped from the recording except Barstool's own `X-Barstool-UUID` correlation header.
 
+Header names are matched case-insensitively, so `authorization` is caught by an `Authorization` exclusion.
+
+### Redacting sensitive response headers
+
+Response headers work the same way via `excluded_response_headers` — matching values are stored as `REDACTED`. The `Set-Cookie` header is redacted by default so session cookies never land in your logs:
+
+```php
+'excluded_response_headers' => [
+    'Set-Cookie',
+    // '*',                    // redact every response header
+    // SensitiveConnector::class, // redact all response headers for a connector
+    // SensitiveRequest::class,   // or a single request
+],
+```
+
 ### Excluding response bodies
 
 Response bodies for sensitive endpoints can be kept out of the database entirely — they are stored as `REDACTED`:

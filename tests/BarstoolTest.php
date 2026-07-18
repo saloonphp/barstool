@@ -1118,3 +1118,46 @@ it('ignores a fatal exception for a request that was never recorded', function (
 
     assertDatabaseCount('barstools', 0);
 });
+
+it('redacts the Set-Cookie response header by default', function () {
+    config()->set('barstool.enabled', true);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: ['data' => 'ok'],
+            status: 200,
+            headers: ['set-cookie' => 'session=secret-value', 'token' => 'abc123'],
+        ),
+    ]);
+
+    (new SoloUserRequest)->send();
+
+    $barstool = Barstool::sole();
+
+    expect($barstool->response_headers['set-cookie'])->toBe('REDACTED');
+    expect($barstool->response_headers['token'])->toBe('abc123');
+});
+
+it('can redact all response headers or by connector or request class', function ($excluded) {
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.excluded_response_headers', [$excluded]);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: ['data' => 'ok'],
+            status: 200,
+            headers: ['token' => 'abc123', 'other' => 'value'],
+        ),
+    ]);
+
+    (new SoloUserRequest)->send();
+
+    $barstool = Barstool::sole();
+
+    expect($barstool->response_headers['token'])->toBe('REDACTED');
+    expect($barstool->response_headers['other'])->toBe('REDACTED');
+})->with([
+    '*',
+    NullConnector::class,
+    SoloUserRequest::class,
+]);
