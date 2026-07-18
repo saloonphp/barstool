@@ -114,7 +114,7 @@ If you mainly use Barstool to investigate failures, you can skip storing success
 'keep_successful_responses' => false,
 ```
 
-The request itself is still recorded — you just won't get the response body, headers, and status for successful calls. Failed responses and fatal errors are always kept.
+The request, response status, duration, and outcome are still recorded for successful calls — only the response body and headers are omitted, so your "show me failures" queries stay accurate. Failed responses and fatal errors are always kept in full.
 
 ### Redacting sensitive request headers
 

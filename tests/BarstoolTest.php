@@ -1171,3 +1171,92 @@ it('adds the created_at index via the upgrade migration', function () {
 
     expect($schema->hasIndex('barstools', 'barstools_created_at_index'))->toBeTrue();
 });
+
+it('records the outcome of successful responses when keep_successful_responses is false', function () {
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.keep_successful_responses', false);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: ['data' => 'ok'],
+            status: 200,
+            headers: ['token' => 'abc123'],
+        ),
+    ]);
+
+    (new SoloUserRequest)->send();
+
+    $barstool = Barstool::sole();
+
+    expect($barstool)
+        ->successful->toBeTrue()
+        ->response_status->toBe(200)
+        ->duration->not->toBeNull()
+        ->response_body->toBeNull()
+        ->response_headers->toBeNull();
+});
+
+it('keeps failed responses in full when keep_successful_responses is false', function () {
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.keep_successful_responses', false);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: ['error' => 'whoops'],
+            status: 500,
+            headers: ['Content-Type' => 'application/json'],
+        ),
+    ]);
+
+    (new SoloUserRequest)->send();
+
+    $barstool = Barstool::sole();
+
+    expect($barstool)
+        ->successful->toBeFalse()
+        ->response_status->toBe(500)
+        ->response_body->toBe(json_encode(['error' => 'whoops']));
+});
+
+it('measures the response size limit in bytes rather than characters', function () {
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.max_response_size', 1);
+
+    // 700 three-byte characters: 700 chars but 2100 bytes - over a 1KB byte limit
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: str_repeat('€', 700),
+            status: 200,
+            headers: ['Content-Type' => 'text/plain'],
+        ),
+    ]);
+
+    (new SoloUserRequest)->send();
+
+    expect(Barstool::sole()->response_body)->toBe('<Unsupported Barstool Response Content>');
+});
+
+it('rounds durations to the nearest whole millisecond', function () {
+    config()->set('barstool.enabled', true);
+
+    $pendingRequest = (new SoloUserRequest)->createPendingRequest();
+
+    $pendingRequest->config()->add('barstool-request-time', 1000.3);
+    $pendingRequest->config()->add('barstool-response-time', 1001.7);
+
+    // Truncate-then-subtract would give 1; correct rounding gives 1 too,
+    // but 1000.6 -> 1002.4 shows the difference:
+    expect(BarstoolRecorder::calculateDuration($pendingRequest))->toBe(1);
+
+    $pendingRequest->config()->add('barstool-request-time', 1000.6);
+    $pendingRequest->config()->add('barstool-response-time', 1002.4);
+
+    // Old behaviour: (int) 1002.4 - (int) 1000.6 = 2ms error path (1002-1000);
+    // correct: round(1.8) = 2 -- and a sub-ms request no longer records 0
+    expect(BarstoolRecorder::calculateDuration($pendingRequest))->toBe(2);
+
+    $pendingRequest->config()->add('barstool-request-time', 1000.2);
+    $pendingRequest->config()->add('barstool-response-time', 1000.9);
+
+    expect(BarstoolRecorder::calculateDuration($pendingRequest))->toBe(1);
+});

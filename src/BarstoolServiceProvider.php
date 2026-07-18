@@ -60,10 +60,6 @@ class BarstoolServiceProvider extends PackageServiceProvider
                     microtime(true) * 1000
                 );
 
-                if ($response->successful() && config('barstool.keep_successful_responses') === false) {
-                    return;
-                }
-
                 Barstool::record($response);
             });
     }

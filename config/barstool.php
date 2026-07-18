@@ -25,8 +25,10 @@ return [
     'max_response_size' => 100,
 
     /*
-     * Indicates if successful responses should be kept.
-     * If false, only failed responses will be kept however the request will still be recorded.
+     * Indicates if successful response bodies and headers should be kept.
+     * If false, the request, status, duration and outcome are still recorded
+     * for successful responses - only the response body and headers are omitted.
+     * Failed responses are always kept in full.
      */
     'keep_successful_responses' => true,
 
