@@ -83,6 +83,19 @@ return [
     ],
 
     /*
+     * Any response headers that should be excluded from the recording.
+     * Will replace the header value with `REDACTED`.
+     * Use '*' or a connector/request class name to redact all headers
+     * for every response or for that connector/request.
+     */
+    'excluded_response_headers' => [
+        'Set-Cookie',
+        // '*', // All headers
+        // SensitiveConnector::class,
+        // SensitiveRequest::class,
+    ],
+
+    /*
      * Queue configuration for recording.
      * When enabled, recordings will be dispatched as queued jobs
      * instead of being written to the database synchronously.
