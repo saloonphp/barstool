@@ -159,6 +159,18 @@ Response bodies for sensitive endpoints can be kept out of the database entirely
 ],
 ```
 
+### Excluding request bodies
+
+Request bodies work the same way via `excluded_request_body` — useful for login requests, payloads containing personal data, or anything else that shouldn't sit in your logs:
+
+```php
+'excluded_request_body' => [
+    LoginRequest::class,       // exclude the body for a single request
+    // SensitiveConnector::class, // or a whole connector
+    // '*',                    // or every request
+],
+```
+
 ### Response body limits
 
 To keep the table lean, Barstool only stores response bodies that are:
@@ -169,6 +181,8 @@ To keep the table lean, Barstool only stores response bodies that are:
 ```php
 'max_response_size' => 100,
 ```
+
+Request bodies have a matching limit, `max_request_size` (also kilobytes, default `100`) — oversized request bodies are stored as `<Unsupported Barstool Request Content>`.
 
 You may also spot a couple of other placeholder values in the `barstools` table: streamed request/response bodies are stored as `<Streamed Body>` (reading them would consume the stream before your application gets it), and multipart request bodies as `<Multipart Body>`.
 

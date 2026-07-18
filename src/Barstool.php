@@ -10,7 +10,6 @@ use Saloon\Http\PendingRequest;
 use Psr\Http\Message\UriInterface;
 use Illuminate\Support\Facades\Context;
 use Saloon\Barstool\Enums\RecordingType;
-use Saloon\Contracts\Body\BodyRepository;
 use Saloon\Barstool\Jobs\RecordBarstoolJob;
 use Saloon\Repositories\Body\StreamBodyRepository;
 use Saloon\Exceptions\Request\FatalRequestException;
@@ -131,28 +130,20 @@ class Barstool
      *      method: string,
      *      url: string,
      *      request_headers: array<string, string>|null,
-     *      request_body: BodyRepository|string|null,
+     *      request_body: string|null,
      *      successful: false,
      *      context?: array<string, mixed>
      * }
      */
     private static function getRequestData(PendingRequest $request): array
     {
-        $body = $request->body();
-
-        $body = match (true) {
-            $body instanceof StreamBodyRepository => '<Streamed Body>',
-            $body instanceof MultipartBodyRepository => '<Multipart Body>',
-            default => $body,
-        };
-
         $data = [
             'connector_class' => get_class($request->getConnector()),
             'request_class' => get_class($request->getRequest()),
             'method' => $request->getMethod()->value,
             'url' => $request->getUrl(),
             'request_headers' => self::getRequestHeaders($request),
-            'request_body' => $body,
+            'request_body' => self::getRequestBody($request),
             'successful' => false,
         ];
 
@@ -350,6 +341,41 @@ class Barstool
         ];
     }
 
+    public static function getRequestBody(PendingRequest $request): ?string
+    {
+        $body = $request->body();
+
+        if ($body === null) {
+            return null;
+        }
+
+        if ($body instanceof StreamBodyRepository) {
+            return '<Streamed Body>';
+        }
+
+        if ($body instanceof MultipartBodyRepository) {
+            return '<Multipart Body>';
+        }
+
+        $excludedBodies = config('barstool.excluded_request_body', []);
+
+        if (in_array('*', $excludedBodies)
+            || in_array(get_class($request->getConnector()), $excludedBodies)
+            || in_array(get_class($request->getRequest()), $excludedBodies)) {
+            return 'REDACTED';
+        }
+
+        // Saloon's standard repositories are all Stringable; fall back to
+        // encoding the raw contents for custom repositories that are not.
+        $body = $body instanceof \Stringable
+            ? (string) $body
+            : (string) json_encode($body->all());
+
+        return self::checkContentSize($body, (int) config('barstool.max_request_size', 100))
+            ? $body
+            : '<Unsupported Barstool Request Content>';
+    }
+
     /**
      * @return array<string, string>|null
      */
@@ -425,19 +451,21 @@ class Barstool
 
         $body = $response->body();
 
-        return self::checkContentSize($body) ? $body : '<Unsupported Barstool Response Content>';
+        return self::checkContentSize($body, (int) config('barstool.max_response_size', 100))
+            ? $body
+            : '<Unsupported Barstool Response Content>';
     }
 
     /**
      * Check if the content is within limits
      */
-    private static function checkContentSize(mixed $body): bool
+    private static function checkContentSize(mixed $body, int $maxKilobytes): bool
     {
         try {
             $body = (string) $body;
 
             // strlen, not mb_strlen: the limit is about storage size, so count bytes
-            return intdiv(strlen($body), 1000) <= config('barstool.max_response_size', 100);
+            return intdiv(strlen($body), 1000) <= $maxKilobytes;
         } catch (\Throwable) {
             return false;
         }
