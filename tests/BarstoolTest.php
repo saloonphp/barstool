@@ -26,6 +26,7 @@ use Saloon\Barstool\Barstool as BarstoolRecorder;
 use Saloon\Exceptions\Request\FatalRequestException;
 use Saloon\Barstool\Tests\Fixtures\Requests\PostRequest;
 use Saloon\Barstool\Tests\Fixtures\Requests\GetFileRequest;
+use Saloon\Barstool\Tests\Fixtures\Requests\JsonPostRequest;
 use Saloon\Barstool\Tests\Fixtures\Requests\SoloUserRequest;
 use Saloon\Barstool\Tests\Fixtures\Connectors\RandomConnector;
 use Saloon\Barstool\Tests\Fixtures\Requests\RequestWithConnector;
@@ -1259,4 +1260,59 @@ it('rounds durations to the nearest whole millisecond', function () {
     $pendingRequest->config()->add('barstool-response-time', 1000.9);
 
     expect(BarstoolRecorder::calculateDuration($pendingRequest))->toBe(1);
+});
+
+it('records json request bodies as strings', function () {
+    config()->set('barstool.enabled', true);
+
+    MockClient::global([
+        JsonPostRequest::class => MockResponse::make(body: ['data' => 'ok'], status: 200),
+    ]);
+
+    (new RandomConnector)->send(new JsonPostRequest(['name' => 'Doc Holliday']));
+
+    expect(Barstool::sole()->request_body)->toBe(json_encode(['name' => 'Doc Holliday']));
+});
+
+it('can exclude request bodies for all requests, entire connectors or entire requests', function ($excluded) {
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.excluded_request_body', [$excluded]);
+
+    MockClient::global([
+        JsonPostRequest::class => MockResponse::make(body: ['data' => 'ok'], status: 200),
+    ]);
+
+    (new RandomConnector)->send(new JsonPostRequest(['password' => 'super-secret']));
+
+    expect(Barstool::sole()->request_body)->toBe('REDACTED');
+})->with([
+    '*',
+    RandomConnector::class,
+    JsonPostRequest::class,
+]);
+
+it('limits stored request bodies to max_request_size in bytes', function () {
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.max_request_size', 1);
+
+    MockClient::global([
+        JsonPostRequest::class => MockResponse::make(body: ['data' => 'ok'], status: 200),
+    ]);
+
+    // 700 three-byte characters: 700 chars but 2100 bytes - over a 1KB byte limit
+    (new RandomConnector)->send(new JsonPostRequest(['blob' => str_repeat('€', 700)]));
+
+    expect(Barstool::sole()->request_body)->toBe('<Unsupported Barstool Request Content>');
+});
+
+it('stores a null request body when the request has none', function () {
+    config()->set('barstool.enabled', true);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(body: ['data' => 'ok'], status: 200),
+    ]);
+
+    (new SoloUserRequest)->send();
+
+    expect(Barstool::sole()->request_body)->toBeNull();
 });

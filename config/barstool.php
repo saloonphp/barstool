@@ -25,6 +25,11 @@ return [
     'max_response_size' => 100,
 
     /*
+     * The maximum size of the request body that will be stored in kilobytes.
+     */
+    'max_request_size' => 100,
+
+    /*
      * Indicates if successful response bodies and headers should be kept.
      * If false, the request, status, duration and outcome are still recorded
      * for successful responses - only the response body and headers are omitted.
@@ -82,6 +87,17 @@ return [
         // 'token' // Exclude `token` header on all requests
         // SensitiveRequest::class // Exclude ALL headers for this request
         // SensitiveConnector::class // Exclude `token` header for this request
+    ],
+
+    /*
+     * Any request body that should be excluded from the recording.
+     * This is useful for sensitive data that should not be stored.
+     * You may exclude entire connectors or requests by class name.
+     */
+    'excluded_request_body' => [
+        // '*', // All bodies
+        // SensitiveConnector::class,
+        // SensitiveRequest::class,
     ],
 
     /*
