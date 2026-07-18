@@ -70,7 +70,7 @@ class Barstool extends Model
             ->where(
                 'created_at',
                 '<=',
-                now()->subDays(config('barstool.keep_for_days', 0))
+                now()->subDays(config('barstool.keep_for_days') ?? 30)
             );
     }
 }

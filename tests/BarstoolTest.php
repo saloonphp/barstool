@@ -1005,3 +1005,116 @@ it('records everything when the only lists are empty', function () {
 
     assertDatabaseCount('barstools', 2);
 });
+
+it('tracks duration per request even when a connector is shared', function () {
+    config()->set('barstool.enabled', true);
+
+    $connector = new RandomConnector;
+
+    $first = $connector->createPendingRequest(new RequestWithConnector);
+    $second = $connector->createPendingRequest(new RequestWithConnector);
+
+    // Two in-flight requests on the same connector with overlapping lifetimes
+    $first->config()->add('barstool-request-time', 1000);
+    $second->config()->add('barstool-request-time', 1200);
+    $first->config()->add('barstool-response-time', 1500);
+    $second->config()->add('barstool-response-time', 1300);
+
+    expect(BarstoolRecorder::calculateDuration($first))->toBe(500);
+    expect(BarstoolRecorder::calculateDuration($second))->toBe(100);
+});
+
+it('does not pollute the connector config with timing keys', function () {
+    config()->set('barstool.enabled', true);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(body: ['data' => 'ok'], status: 200),
+    ]);
+
+    (new SoloUserRequest)->send();
+
+    $barstool = Barstool::sole();
+    expect($barstool->duration)->not->toBeNull();
+});
+
+it('does not create duplicate rows when a queued request job is retried', function () {
+    $uuid = (string) Str::uuid();
+
+    $job = new RecordBarstoolJob(RecordingType::REQUEST, [
+        'connector_class' => NullConnector::class,
+        'request_class' => SoloUserRequest::class,
+        'method' => 'GET',
+        'url' => 'https://tests.saloon.dev/api/user',
+        'successful' => false,
+    ], $uuid);
+
+    $job->handle();
+    $job->handle();
+
+    assertDatabaseCount('barstools', 1);
+});
+
+it('redacts excluded headers regardless of casing', function () {
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.excluded_request_headers', ['Authorization']);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(body: ['data' => 'ok'], status: 200),
+    ]);
+
+    $request = new SoloUserRequest;
+    $request->headers()->add('authorization', 'Bearer super-secret');
+    $request->headers()->add('AUTHORIZATION-ISH', 'not-excluded');
+    $request->send();
+
+    $barstool = Barstool::sole();
+
+    expect($barstool->request_headers['authorization'])->toBe('REDACTED');
+    expect($barstool->request_headers['AUTHORIZATION-ISH'])->toBe('not-excluded');
+});
+
+it('stores response bodies whatever the content-type header casing', function () {
+    config()->set('barstool.enabled', true);
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: ['data' => 'ok'],
+            status: 200,
+            headers: ['CONTENT-TYPE' => 'application/json'],
+        ),
+    ]);
+
+    (new SoloUserRequest)->send();
+
+    $barstool = Barstool::sole();
+    expect($barstool->response_body)->toBe(json_encode(['data' => 'ok']));
+});
+
+it('keeps recordings for 30 days when the keep_for_days config key is missing', function () {
+    config()->offsetUnset('barstool.keep_for_days');
+    expect(config('barstool.keep_for_days'))->toBeNull();
+
+    $this->travel(-10)->days();
+    Barstool::factory()->count(2)->create();
+
+    $this->travel(-25)->days();
+    Barstool::factory()->count(3)->create();
+
+    $this->travelBack();
+    Artisan::call('model:prune', ['--model' => [Barstool::class]]);
+
+    // Without the safe default, everything would have been pruned
+    assertDatabaseCount('barstools', 2);
+});
+
+it('ignores a fatal exception for a request that was never recorded', function () {
+    // Recording disabled while the request is built, so no UUID header is added
+    config()->set('barstool.enabled', false);
+    $pendingRequest = (new SoloUserRequest)->createPendingRequest();
+
+    config()->set('barstool.enabled', true);
+
+    BarstoolRecorder::record(new FatalRequestException(new Exception('boom'), $pendingRequest));
+
+    assertDatabaseCount('barstools', 0);
+});

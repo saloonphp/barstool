@@ -38,11 +38,13 @@ class RecordBarstoolJob implements ShouldBeUnique, ShouldQueue
     public function handle(): void
     {
         if ($this->type === RecordingType::REQUEST) {
+            // updateOrCreate keeps retries idempotent - a job that fails after its
+            // insert committed must not create a duplicate row on the next attempt.
             Barstool::query()
-                ->create([
-                    'uuid' => $this->uuid,
-                    ...$this->data,
-                ]);
+                ->updateOrCreate(
+                    ['uuid' => $this->uuid],
+                    $this->data,
+                );
 
             return;
         }
