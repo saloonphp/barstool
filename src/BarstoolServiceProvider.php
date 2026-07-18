@@ -39,7 +39,7 @@ class BarstoolServiceProvider extends PackageServiceProvider
                     return;
                 }
 
-                $request->getConnector()->config()->add(
+                $request->config()->add(
                     'barstool-request-time',
                     microtime(true) * 1000
                 );
@@ -51,7 +51,7 @@ class BarstoolServiceProvider extends PackageServiceProvider
                     return;
                 }
 
-                $response->getConnector()->config()->add(
+                $response->getPendingRequest()->config()->add(
                     'barstool-response-time',
                     microtime(true) * 1000
                 );

@@ -239,7 +239,11 @@ class Barstool
 
     public static function calculateDuration(Response|PendingRequest $data): int
     {
-        $config = $data->getConnector()->config();
+        // Timing lives on the PendingRequest, not the connector - connector config is
+        // shared between concurrent requests and the timestamps would overwrite each other.
+        $config = $data instanceof Response
+            ? $data->getPendingRequest()->config()
+            : $data->config();
 
         $requestTime = (int) $config->get('barstool-request-time');
         $responseTime = (int) $config->get('barstool-response-time', microtime(true) * 1000);
@@ -250,7 +254,11 @@ class Barstool
     private static function recordFatal(FatalRequestException $data): void
     {
         $pendingRequest = $data->getPendingRequest();
+
         $uuid = $pendingRequest->headers()->get('X-Barstool-UUID');
+        if (! is_string($uuid) || $uuid === '') {
+            return;
+        }
 
         $payload = [
             'duration' => self::calculateDuration($pendingRequest),
@@ -324,8 +332,12 @@ class Barstool
             return $headers->reject(fn ($value, $key) => $key !== 'X-Barstool-UUID')->toArray();
         }
 
+        // Header names are matched case-insensitively so `authorization` cannot
+        // slip past an `Authorization` exclusion.
+        $excludedHeaders = array_map(mb_strtolower(...), $excludedHeaders);
+
         return $headers->map(function ($value, $key) use ($excludedHeaders) {
-            if (in_array($key, $excludedHeaders)) {
+            if (in_array(mb_strtolower($key), $excludedHeaders)) {
                 $value = 'REDACTED';
             }
 
@@ -359,9 +371,14 @@ class Barstool
             return '<Streamed Body>';
         }
 
-        $contentTypeHeaderKey = $response->headers()->get('Content-Type') ? 'Content-Type' : 'content-type';
+        $contentType = collect($response->headers()->all())
+            ->first(fn ($value, $key) => mb_strtolower($key) === 'content-type');
 
-        if (! Str::startsWith(mb_strtolower((string) $response->headers()->get($contentTypeHeaderKey)), self::supportedContentTypes())) {
+        if (is_array($contentType)) {
+            $contentType = $contentType[0] ?? '';
+        }
+
+        if (! Str::startsWith(mb_strtolower((string) $contentType), self::supportedContentTypes())) {
             return '<Unsupported Barstool Response Content>';
         }
 
