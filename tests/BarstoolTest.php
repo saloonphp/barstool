@@ -8,6 +8,7 @@ use Saloon\Http\Faking\MockClient;
 use Saloon\Barstool\Models\Barstool;
 use Saloon\Http\Faking\MockResponse;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Artisan;
 use Saloon\Barstool\Enums\RecordingType;
 use Saloon\Http\Connectors\NullConnector;
@@ -1161,3 +1162,12 @@ it('can redact all response headers or by connector or request class', function 
     NullConnector::class,
     SoloUserRequest::class,
 ]);
+
+it('adds the created_at index via the upgrade migration', function () {
+    $migration = include __DIR__.'/../database/migrations/add_created_at_index_to_barstools_table.php.stub';
+    $migration->up();
+
+    $schema = Schema::connection(config('barstool.connection'));
+
+    expect($schema->hasIndex('barstools', 'barstools_created_at_index'))->toBeTrue();
+});
