@@ -20,7 +20,11 @@ class BarstoolServiceProvider extends PackageServiceProvider
             ->name('barstool')
             ->hasConfigFile()
             ->hasViews()
-            ->hasMigrations(['create_barstools_table', 'add_context_to_barstools_table']);
+            ->hasMigrations([
+                'create_barstools_table',
+                'add_context_to_barstools_table',
+                'add_created_at_index_to_barstools_table',
+            ]);
     }
 
     public function packageRegistered(): void
