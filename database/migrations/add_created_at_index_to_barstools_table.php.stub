@@ -21,12 +21,14 @@ return new class extends Migration
     public function up()
     {
         $schema = Schema::connection($this->getConnection());
+        $tableName = config('barstool.table', 'barstools');
 
-        if ($schema->hasIndex('barstools', 'barstools_created_at_index')) {
+        // Match the index by column so the check holds for any table name
+        if ($schema->hasIndex($tableName, ['created_at'])) {
             return;
         }
 
-        $schema->table('barstools', function (Blueprint $table) {
+        $schema->table($tableName, function (Blueprint $table) {
             $table->index('created_at');
         });
     }

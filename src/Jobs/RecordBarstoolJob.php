@@ -9,6 +9,7 @@ use Saloon\Barstool\Enums\RecordingType;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Saloon\Barstool\Barstool as BarstoolRecorder;
 
 class RecordBarstoolJob implements ShouldBeUnique, ShouldQueue
 {
@@ -40,7 +41,7 @@ class RecordBarstoolJob implements ShouldBeUnique, ShouldQueue
         if ($this->type === RecordingType::REQUEST) {
             // updateOrCreate keeps retries idempotent - a job that fails after its
             // insert committed must not create a duplicate row on the next attempt.
-            Barstool::query()
+            BarstoolRecorder::getModelClass()::query()
                 ->updateOrCreate(
                     ['uuid' => $this->uuid],
                     $this->data,
@@ -49,7 +50,7 @@ class RecordBarstoolJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $barstool = Barstool::query()
+        $barstool = BarstoolRecorder::getModelClass()::query()
             ->where('uuid', $this->uuid)
             ->first();
 

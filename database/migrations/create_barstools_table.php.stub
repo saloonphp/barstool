@@ -22,7 +22,7 @@ return new class extends Migration
     {
         $schema = Schema::connection($this->getConnection());
 
-        $schema->create('barstools', function (Blueprint $table) {
+        $schema->create(config('barstool.table', 'barstools'), function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->index();
             $table->timestamp('created_at')->useCurrent()->index();

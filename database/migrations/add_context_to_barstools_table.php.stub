@@ -21,12 +21,13 @@ return new class extends Migration
     public function up()
     {
         $schema = Schema::connection($this->getConnection());
+        $tableName = config('barstool.table', 'barstools');
 
-        if ($schema->hasColumn('barstools', 'context')) {
+        if ($schema->hasColumn($tableName, 'context')) {
             return;
         }
 
-        $schema->table('barstools', function (Blueprint $table) {
+        $schema->table($tableName, function (Blueprint $table) {
             $table->json('context')->nullable();
         });
     }
