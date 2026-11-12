@@ -7,10 +7,12 @@ use GuzzleHttp\Psr7\NoSeekStream;
 use Saloon\Http\Faking\MockClient;
 use Saloon\Barstool\Models\Barstool;
 use Saloon\Http\Faking\MockResponse;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Artisan;
 use Saloon\Barstool\Enums\RecordingType;
+use Illuminate\Database\Schema\Blueprint;
 use Saloon\Http\Connectors\NullConnector;
 use Saloon\Barstool\Jobs\RecordBarstoolJob;
 use Saloon\Http\Response as SaloonResponse;
@@ -25,6 +27,7 @@ use function Pest\Laravel\assertDatabaseEmpty;
 use Saloon\Barstool\Barstool as BarstoolRecorder;
 use Saloon\Exceptions\Request\FatalRequestException;
 use Saloon\Barstool\Tests\Fixtures\Requests\PostRequest;
+use Saloon\Barstool\Tests\Fixtures\Models\CustomBarstool;
 use Saloon\Barstool\Tests\Fixtures\Requests\GetFileRequest;
 use Saloon\Barstool\Tests\Fixtures\Requests\SoloUserRequest;
 use Saloon\Barstool\Tests\Fixtures\Connectors\RandomConnector;
@@ -116,6 +119,75 @@ it('uses the correct config key for the migration database connection', function
     config()->set('barstool.database_connection', 'sqlite');
     expect($migration->getConnection())->toBe('mysql');
 });
+
+it('can change the table name', function () {
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.table', 'saloon_logs');
+
+    $migration = include __DIR__.'/../database/migrations/create_barstools_table.php.stub';
+    $migration->up();
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(body: ['data' => 'ok'], status: 200),
+    ]);
+
+    (new SoloUserRequest)->send();
+
+    expect(Barstool::make()->getTable())->toBe('saloon_logs');
+
+    assertDatabaseCount('saloon_logs', 1);
+    assertDatabaseCount('barstools', 0);
+});
+
+it('runs the upgrade migrations against the configured table', function () {
+    config()->set('barstool.table', 'saloon_logs');
+
+    $schema = Schema::connection(config('barstool.connection'));
+
+    // A table from before the context column and created_at index were added
+    $schema->create('saloon_logs', function (Blueprint $table) {
+        $table->id();
+        $table->timestamp('created_at');
+    });
+
+    $contextMigration = include __DIR__.'/../database/migrations/add_context_to_barstools_table.php.stub';
+    $contextMigration->up();
+
+    $indexMigration = include __DIR__.'/../database/migrations/add_created_at_index_to_barstools_table.php.stub';
+    $indexMigration->up();
+
+    // Running it again must detect the existing index instead of adding a duplicate
+    $indexMigration->up();
+
+    expect($schema->hasColumn('saloon_logs', 'context'))->toBeTrue();
+    expect($schema->hasIndex('saloon_logs', ['created_at']))->toBeTrue();
+});
+
+it('can use a custom model', function (bool $queued) {
+    Event::fake([
+        'eloquent.created: '.CustomBarstool::class,
+        'eloquent.updated: '.CustomBarstool::class,
+    ]);
+
+    config()->set('barstool.enabled', true);
+    config()->set('barstool.model', CustomBarstool::class);
+    config()->set('barstool.queue.enabled', $queued);
+    config()->set('queue.default', 'sync');
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(body: ['data' => 'ok'], status: 200),
+    ]);
+
+    (new SoloUserRequest)->send();
+
+    Event::assertDispatched('eloquent.created: '.CustomBarstool::class);
+    Event::assertDispatched('eloquent.updated: '.CustomBarstool::class);
+
+    expect(CustomBarstool::sole())->response_status->toBe(200);
+})->with([
+    'synchronously' => false,
+    'via the queue' => true,
+]);
 
 it('can change the number of days to keep recordings for', function () {
     // Check the default value is 30

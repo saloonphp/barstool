@@ -57,6 +57,7 @@ class Barstool extends Model
         parent::__construct($attributes);
 
         $this->setConnection(config('barstool.connection'));
+        $this->setTable(config('barstool.table', 'barstools'));
     }
 
     /**

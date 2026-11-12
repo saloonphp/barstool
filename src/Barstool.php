@@ -322,10 +322,22 @@ class Barstool
             return;
         }
 
-        Models\Barstool::query()->updateOrCreate(
+        self::getModelClass()::query()->updateOrCreate(
             ['uuid' => $uuid],
             $payload,
         );
+    }
+
+    /**
+     * Get the model class used to store recordings.
+     *
+     * @internal
+     *
+     * @return class-string<Models\Barstool>
+     */
+    public static function getModelClass(): string
+    {
+        return config('barstool.model', Models\Barstool::class);
     }
 
     private static function shouldQueue(): bool

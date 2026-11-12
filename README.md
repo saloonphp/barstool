@@ -182,6 +182,29 @@ BARSTOOL_DB_CONNECTION=barstool
 
 The migration and the `Barstool` model both respect this connection.
 
+### Custom table & model
+
+Recordings are stored in a `barstools` table by default. To use a different name, set `table` before running the migrations:
+
+```php
+'table' => 'saloon_logs',
+```
+
+You can also have Barstool record through your own model — handy for adding relationships, scopes, or casts. It must extend Barstool's model, and it uses the configured `table` automatically:
+
+```php
+use Saloon\Barstool\Models\Barstool;
+
+class SaloonLog extends Barstool
+{
+    //
+}
+```
+
+```php
+'model' => App\Models\SaloonLog::class,
+```
+
 ### Pruning old recordings
 
 Recordings are kept for 30 days by default, controlled by:

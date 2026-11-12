@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use Saloon\Barstool\Models\Barstool;
+
 return [
 
     /*
@@ -13,6 +15,17 @@ return [
      * The database connection where recordings will be stored.
      */
     'connection' => env('BARSTOOL_DB_CONNECTION', env('DB_CONNECTION', 'mysql')),
+
+    /*
+     * The database table where recordings will be stored.
+     */
+    'table' => 'barstools',
+
+    /*
+     * The model used to store recordings.
+     * If you use your own model, it must extend Saloon\Barstool\Models\Barstool.
+     */
+    'model' => Barstool::class,
 
     /*
      * The number of days to keep recordings for.
