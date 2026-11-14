@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Saloon\Barstool;
 
+use GuzzleHttp\Psr7\Uri;
 use Saloon\Http\Response;
+use GuzzleHttp\Psr7\Query;
 use Illuminate\Support\Str;
 use Saloon\Http\PendingRequest;
 use Psr\Http\Message\UriInterface;
@@ -19,6 +21,26 @@ use Saloon\Repositories\Body\MultipartBodyRepository;
 class Barstool
 {
     private const string CONTEXT_KEY = 'barstool:context';
+
+    /**
+     * Query parameter names whose values are credentials.
+     *
+     * @var list<string>
+     */
+    private const array DEFAULT_EXCLUDED_QUERY_PARAMETERS = [
+        'access_token',
+        'api_key',
+        'api-key',
+        'apikey',
+        'client_secret',
+        'id_token',
+        'password',
+        'refresh_token',
+        'secret',
+        'sig',
+        'signature',
+        'token',
+    ];
 
     /**
      * Merge the given key/value pairs into the Barstool context.
@@ -150,7 +172,7 @@ class Barstool
             'connector_class' => get_class($request->getConnector()),
             'request_class' => get_class($request->getRequest()),
             'method' => $request->getMethod()->value,
-            'url' => $request->getUrl(),
+            'url' => self::redactUrl($request->getUrl()),
             'request_headers' => self::getRequestHeaders($request),
             'request_body' => $body,
             'successful' => false,
@@ -169,7 +191,7 @@ class Barstool
 
     /**
      * @return array{
-     *      url: UriInterface,
+     *      url: string,
      *      response_headers: array<string, mixed>,
      *      response_body: string,
      *      response_status: int,
@@ -181,7 +203,7 @@ class Barstool
         $responseBody = self::getResponseBody($response);
 
         return [
-            'url' => $response->getPsrRequest()->getUri(),
+            'url' => self::redactUrl($response->getPsrRequest()->getUri()),
             'response_headers' => self::getResponseHeaders($response),
             'response_body' => $responseBody,
             'response_status' => $response->status(),
@@ -219,7 +241,7 @@ class Barstool
 
     /**
      * @return array{
-     *      url: UriInterface,
+     *      url: string,
      *      response_headers: null,
      *      response_body: null,
      *      response_status: null,
@@ -230,7 +252,7 @@ class Barstool
     private static function getFatalData(FatalRequestException $exception): array
     {
         return [
-            'url' => $exception->getPendingRequest()->getUri(),
+            'url' => self::redactUrl($exception->getPendingRequest()->getUri()),
             'response_headers' => null,
             'response_body' => null,
             'response_status' => null,
@@ -348,6 +370,53 @@ class Barstool
             'text/html',
             'text/plain',
         ];
+    }
+
+    /**
+     * Replace credential query values and URL user info before the URL is stored.
+     *
+     * The outgoing request is left unchanged. Names in `excluded_query_parameters`
+     * are matched without regard to case. `*` redacts every query value.
+     */
+    private static function redactUrl(string|UriInterface $url): string
+    {
+        $uri = new Uri((string) $url);
+        $userInfo = $uri->getUserInfo();
+
+        if ($userInfo !== '') {
+            $uri = str_contains($userInfo, ':')
+                ? $uri->withUserInfo('REDACTED', 'REDACTED')
+                : $uri->withUserInfo('REDACTED');
+        }
+
+        if ($uri->getQuery() === '') {
+            return (string) $uri;
+        }
+
+        $excluded = config('barstool.excluded_query_parameters', self::DEFAULT_EXCLUDED_QUERY_PARAMETERS);
+
+        if (! is_array($excluded)) {
+            return (string) $uri;
+        }
+
+        $excluded = array_map(
+            static fn (mixed $parameter): string => mb_strtolower((string) $parameter),
+            $excluded,
+        );
+        $redactAll = in_array('*', $excluded, true);
+        $parameters = Query::parse($uri->getQuery());
+
+        foreach ($parameters as $name => $value) {
+            if (! $redactAll && ! in_array(mb_strtolower((string) $name), $excluded, true)) {
+                continue;
+            }
+
+            $parameters[$name] = is_array($value)
+                ? array_map(static fn (): string => 'REDACTED', $value)
+                : 'REDACTED';
+        }
+
+        return (string) $uri->withQuery(Query::build($parameters));
     }
 
     /**

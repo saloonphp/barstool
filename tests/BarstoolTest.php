@@ -1260,3 +1260,67 @@ it('rounds durations to the nearest whole millisecond', function () {
 
     expect(BarstoolRecorder::calculateDuration($pendingRequest))->toBe(1);
 });
+
+it('redacts credential query parameters in the stored url', function () {
+    config()->set('barstool.enabled', true);
+
+    $mock = MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: ['data' => 'ok'],
+            status: 200,
+        ),
+    ]);
+
+    $request = new SoloUserRequest;
+    $request->query()->add('access_token', 'query-access-secret');
+    $request->query()->add('API_KEY', 'query-api-secret');
+    $request->query()->add('account_id', 'acc_123');
+    $request->send();
+
+    $url = Barstool::sole()->url;
+
+    expect($url)->not->toContain('query-access-secret')
+        ->and($url)->not->toContain('query-api-secret')
+        ->and($url)->toContain('access_token=REDACTED')
+        ->and($url)->toContain('API_KEY=REDACTED')
+        ->and($url)->toContain('account_id=acc_123');
+
+    $sent = $mock->getLastPendingRequest();
+
+    expect($sent)->not->toBeNull()
+        ->and($sent->query()->get('access_token'))->toBe('query-access-secret')
+        ->and($sent->query()->get('API_KEY'))->toBe('query-api-secret')
+        ->and($sent->query()->get('account_id'))->toBe('acc_123');
+});
+
+it('redacts credentials in the stored url user info', function () {
+    config()->set('barstool.enabled', true);
+
+    $pendingRequest = (new SoloUserRequest)->createPendingRequest();
+    $pendingRequest->setUrl('https://alice:secret-pass@tests.saloon.dev/api/user');
+
+    BarstoolRecorder::record($pendingRequest);
+
+    $url = Barstool::query()->latest('id')->value('url');
+
+    expect($url)->not->toContain('alice')
+        ->and($url)->not->toContain('secret-pass')
+        ->and($url)->toContain('REDACTED:REDACTED@tests.saloon.dev/api/user');
+});
+
+it('redacts a credential query parameter when a connection error is recorded', function () {
+    config()->set('barstool.enabled', true);
+
+    $request = new SoloUserRequest;
+    $request->query()->add('access_token', 'query-access-secret');
+
+    $pendingRequest = $request->createPendingRequest();
+    $connectionError = new FatalRequestException(new RuntimeException('connection refused'), $pendingRequest);
+
+    $pendingRequest->executeFatalPipeline($connectionError);
+
+    $url = Barstool::query()->latest('id')->value('url');
+
+    expect($url)->not->toContain('query-access-secret')
+        ->and($url)->toContain('access_token=REDACTED');
+});
