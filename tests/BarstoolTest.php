@@ -1260,3 +1260,32 @@ it('rounds durations to the nearest whole millisecond', function () {
 
     expect(BarstoolRecorder::calculateDuration($pendingRequest))->toBe(1);
 });
+
+it('does not fail the api call when a recording cannot be stored', function () {
+    config()->set('barstool.enabled', true);
+    Schema::drop('barstools');
+
+    MockClient::global([
+        SoloUserRequest::class => MockResponse::make(
+            body: ['data' => 'ok'],
+            status: 200,
+        ),
+    ]);
+
+    $response = (new SoloUserRequest)->send();
+
+    expect($response->status())->toBe(200);
+    expect($response->json())->toBe(['data' => 'ok']);
+});
+
+it('does not replace a connection error when a recording cannot be stored', function () {
+    config()->set('barstool.enabled', true);
+    Schema::drop('barstools');
+
+    $pendingRequest = (new SoloUserRequest)->createPendingRequest();
+    $connectionError = new FatalRequestException(new RuntimeException('connection refused'), $pendingRequest);
+
+    $pendingRequest->executeFatalPipeline($connectionError);
+
+    expect($connectionError->getMessage())->toBe('connection refused');
+});

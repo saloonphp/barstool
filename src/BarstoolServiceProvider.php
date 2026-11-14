@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Saloon\Barstool;
 
+use Throwable;
 use Saloon\Config;
 use Saloon\Http\Response;
 use Saloon\Enums\PipeOrder;
@@ -31,36 +32,47 @@ class BarstoolServiceProvider extends PackageServiceProvider
     {
         Config::globalMiddleware()
             ->onFatalException(function (FatalRequestException $exception) {
-                if (Barstool::shouldRecord($exception) === false) {
-                    return;
+                try {
+                    if (Barstool::shouldRecord($exception) === false) {
+                        return;
+                    }
+
+                    Barstool::record($exception);
+                } catch (Throwable $recordingException) {
+                    report($recordingException);
                 }
-
-                Barstool::record($exception);
-
             }, order: PipeOrder::FIRST)
             ->onRequest(function (PendingRequest $request) {
-                if (Barstool::shouldRecord($request) === false) {
-                    return;
+                try {
+                    if (Barstool::shouldRecord($request) === false) {
+                        return;
+                    }
+
+                    $request->config()->add(
+                        'barstool-request-time',
+                        microtime(true) * 1000
+                    );
+
+                    Barstool::record($request);
+                } catch (Throwable $recordingException) {
+                    report($recordingException);
                 }
-
-                $request->config()->add(
-                    'barstool-request-time',
-                    microtime(true) * 1000
-                );
-
-                Barstool::record($request);
             })
             ->onResponse(function (Response $response) {
-                if (Barstool::shouldRecord($response) === false) {
-                    return;
+                try {
+                    if (Barstool::shouldRecord($response) === false) {
+                        return;
+                    }
+
+                    $response->getPendingRequest()->config()->add(
+                        'barstool-response-time',
+                        microtime(true) * 1000
+                    );
+
+                    Barstool::record($response);
+                } catch (Throwable $recordingException) {
+                    report($recordingException);
                 }
-
-                $response->getPendingRequest()->config()->add(
-                    'barstool-response-time',
-                    microtime(true) * 1000
-                );
-
-                Barstool::record($response);
             });
     }
 }
