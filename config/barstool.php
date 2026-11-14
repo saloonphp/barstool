@@ -98,6 +98,26 @@ return [
     ],
 
     /*
+     * Query parameter names whose values are replaced with `REDACTED` in the stored URL.
+     * The outgoing request is not changed. Matching ignores case.
+     * Use '*' to redact every query value.
+     */
+    'excluded_query_parameters' => [
+        'access_token',
+        'api_key',
+        'api-key',
+        'apikey',
+        'client_secret',
+        'id_token',
+        'password',
+        'refresh_token',
+        'secret',
+        'sig',
+        'signature',
+        'token',
+    ],
+
+    /*
      * Queue configuration for recording.
      * When enabled, recordings will be dispatched as queued jobs
      * instead of being written to the database synchronously.
