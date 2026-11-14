@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Saloon\Barstool\Jobs;
 
+use DateTimeInterface;
 use Saloon\Barstool\Models\Barstool;
 use Saloon\Barstool\Enums\RecordingType;
 use Illuminate\Foundation\Queue\Queueable;
@@ -35,6 +36,22 @@ class RecordBarstoolJob implements ShouldBeUnique, ShouldQueue
         return "{$this->uuid}-{$this->type->value}";
     }
 
+    /**
+     * Keep a response or fatal recording alive until its request row exists.
+     *
+     * Releasing this job still counts as an attempt. With only three tries, the
+     * worker fails it before handle() on the next pickup and the recording is lost.
+     * The deadline is fixed when the job is queued, and it takes precedence over tries.
+     */
+    public function retryUntil(): ?DateTimeInterface
+    {
+        if ($this->type === RecordingType::REQUEST) {
+            return null;
+        }
+
+        return now()->addMinutes(10);
+    }
+
     public function handle(): void
     {
         if ($this->type === RecordingType::REQUEST) {
@@ -54,11 +71,21 @@ class RecordBarstoolJob implements ShouldBeUnique, ShouldQueue
             ->first();
 
         if ($barstool === null) {
-            $this->release(2);
+            $this->release($this->releaseDelay());
 
             return;
         }
 
         $barstool->update($this->data);
+    }
+
+    /**
+     * Use the configured backoff, then keep using its last delay.
+     */
+    private function releaseDelay(): int
+    {
+        $index = min($this->attempts() - 1, count($this->backoff) - 1);
+
+        return $this->backoff[max(0, $index)];
     }
 }

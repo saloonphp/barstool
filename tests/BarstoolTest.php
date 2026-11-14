@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Artisan;
 use Saloon\Barstool\Enums\RecordingType;
+use Illuminate\Database\Schema\Blueprint;
 use Saloon\Http\Connectors\NullConnector;
 use Saloon\Barstool\Jobs\RecordBarstoolJob;
 use Saloon\Http\Response as SaloonResponse;
@@ -1259,4 +1260,89 @@ it('rounds durations to the nearest whole millisecond', function () {
     $pendingRequest->config()->add('barstool-response-time', 1000.9);
 
     expect(BarstoolRecorder::calculateDuration($pendingRequest))->toBe(1);
+});
+
+it('records a queued response that the worker handles before the request row exists', function () {
+    config()->set('queue.default', 'database');
+    config()->set('queue.failed.driver', 'database-uuids');
+    config()->set('queue.failed.table', 'failed_jobs');
+
+    Schema::create('jobs', function (Blueprint $table) {
+        $table->id();
+        $table->string('queue')->index();
+        $table->longText('payload');
+        $table->unsignedTinyInteger('attempts');
+        $table->unsignedInteger('reserved_at')->nullable();
+        $table->unsignedInteger('available_at');
+        $table->unsignedInteger('created_at');
+    });
+
+    Schema::create('failed_jobs', function (Blueprint $table) {
+        $table->id();
+        $table->string('uuid')->unique();
+        $table->text('connection');
+        $table->text('queue');
+        $table->longText('payload');
+        $table->longText('exception');
+        $table->timestamp('failed_at')->useCurrent();
+    });
+
+    $this->freezeTime();
+
+    $uuid = '11111111-1111-4111-8111-111111111111';
+
+    RecordBarstoolJob::dispatch(
+        RecordingType::RESPONSE,
+        [
+            'url' => 'https://tests.saloon.dev/api/user',
+            'response_headers' => [],
+            'response_body' => '{"data":"ok"}',
+            'response_status' => 200,
+            'successful' => true,
+            'duration' => 120,
+        ],
+        $uuid,
+    );
+
+    foreach (range(1, 4) as $attempt) {
+        Artisan::call('queue:work', [
+            '--once' => true,
+            '--sleep' => 0,
+        ]);
+
+        if ($attempt < 4) {
+            $this->travel(31)->seconds();
+        }
+    }
+
+    RecordBarstoolJob::dispatch(
+        RecordingType::REQUEST,
+        [
+            'connector_class' => NullConnector::class,
+            'request_class' => SoloUserRequest::class,
+            'method' => 'GET',
+            'url' => 'https://tests.saloon.dev/api/user',
+            'successful' => false,
+        ],
+        $uuid,
+    );
+
+    Artisan::call('queue:work', [
+        '--once' => true,
+        '--sleep' => 0,
+    ]);
+
+    $this->travel(31)->seconds();
+
+    Artisan::call('queue:work', [
+        '--once' => true,
+        '--sleep' => 0,
+    ]);
+
+    $recording = Barstool::query()->where('uuid', $uuid)->first();
+
+    expect($recording)->not->toBeNull()
+        ->and($recording->response_status)->toBe(200)
+        ->and($recording->successful)->toBeTrue()
+        ->and($recording->response_body)->toBe('{"data":"ok"}');
 });
